@@ -7,7 +7,7 @@ import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 // تأكد إن المسار ده صح عندك
-import { getExamQuestions, submitExamResult, logCheater, logExamStart, checkExamEligibility, getLeaderboard } from '../../actions';
+import { getExamQuestions, submitExamResult, logCheater, logExamStart, checkExamEligibility, getLeaderboard, verifyExamCodeServer } from '../../actions';
 
 export default function ExamPage() {
   const router = useRouter();
@@ -277,65 +277,84 @@ export default function ExamPage() {
   // 🔥🔥🔥 هنا التصحيح كله 🔥🔥🔥
   // الفحص بيتم هنا لما الطالب يضغط زرار البداية، مش أول ما الصفحة تفتح
   const handleStartExam = async () => {
-    // 1. فحص كود الامتحان محلياً الأول
-    if (requiredCode && enteredCode.trim() !== requiredCode.toString().trim()) { 
-    alert("⛔ كود الامتحان غير صحيح!"); 
-    return; 
-    }
+    // 1. التأكد إن الطالب كتب حاجة
+    if (!enteredCode) { alert("من فضلك أدخل كود الامتحان"); return; }
 
     setStep('loading');
-    const sessionKey = `exam_session_${courseId}_${studentData.uid}`;
-    
-    // 2. سؤال السيرفر: هل الطالب ده ينفع يمتحن؟ (امتحن قبل كده ولا لأ)
-    const eligibility = await checkExamEligibility(studentData.uid, courseId);
-    
-    // لو السيرفر قال "غير مسموح" (يعني امتحن وله نتيجة)
-    if (!eligibility.allowed && !eligibility.resume) { 
-        alert(eligibility.message); // هيطلعله رسالة "لقد قمت بتأدية الامتحان مسبقاً"
-        setStep('intro'); // ويفضل مكانه في شاشة البداية عشان لو مسحت نتيجته يدخل تاني
-        return; 
+
+    try {
+        // 🔥 2. التحقق الآمن (Server-Side)
+        // بننادي الدالة اللي عملناها في actions.js
+        const verification = await verifyExamCodeServer(courseId, enteredCode);
+
+        // لو السيرفر قال "غلط"
+        if (!verification.success) {
+            setStep('intro');
+            alert("⛔ " + verification.message); // هيطلع رسالة "الكود غير صحيح"
+            return;
+        }
+
+        // ✅ 3. لو السيرفر قال "صح"، بنكمل باقي الإجراءات عادي جداً
+        const sessionKey = `exam_session_${courseId}_${studentData.uid}`;
+        
+        // التحقق من الأهلية (هل امتحن قبل كده؟)
+        const eligibility = await checkExamEligibility(studentData.uid, courseId);
+        
+        if (!eligibility.allowed && !eligibility.resume) { 
+            alert(eligibility.message); 
+            setStep('intro'); 
+            return; 
+        }
+        
+        // تنظيف الجلسة القديمة لو مسموح له يعيد
+        if (eligibility.allowed && !eligibility.resume) {
+            localStorage.removeItem(sessionKey);
+        }
+        if (eligibility.isRetake) {
+            localStorage.removeItem(sessionKey);
+        }
+
+        // جلب الأسئلة
+        const response = await getExamQuestions(courseId);
+        if (!response.success) { alert("لا توجد أسئلة."); router.replace('/dashboard'); return; }
+
+        // تسجيل بداية الامتحان
+        await logExamStart({ 
+            studentName: studentData.name, section: courseData.section || "General", courseName: courseData.name,
+            examCode: enteredCode, 
+            deviceInfo: window.navigator.userAgent,
+            studentId: studentData.uid, courseId: courseId
+        });
+
+        const fetchedQuestions = response.data;
+        const durationSeconds = eligibility.durationMinutes * 60;
+        const endTime = Date.now() + (durationSeconds * 1000);
+
+        setQuestions(fetchedQuestions);
+        setTimeLeft(durationSeconds);
+        setInitialDuration(durationSeconds);
+        setStep('quiz');
+
+        localStorage.setItem(sessionKey, JSON.stringify({
+            studentName: studentData.name, 
+            section: courseData.section, 
+            questions: fetchedQuestions, 
+            answersIndices: {},
+            timeLeft: durationSeconds, 
+            initialDuration: durationSeconds,
+            endTime: endTime,
+            strikes: 0, 
+            cheatingHistory: [], 
+            finished: false
+        }));
+
+        try { if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen(); } catch (e) {}
+
+    } catch (error) {
+        console.error("Error starting exam:", error);
+        alert("حدث خطأ أثناء الاتصال بالسيرفر، تأكد من الإنترنت.");
+        setStep('intro');
     }
-    
-    // لو مسموح له، امسح أي داتا قديمة وابدأ جديد
-    if (eligibility.allowed && !eligibility.resume) {
-        localStorage.removeItem(sessionKey);
-    }
-    
-    if (eligibility.isRetake) {
-        localStorage.removeItem(sessionKey);
-    }
-
-    const response = await getExamQuestions(courseId);
-    if (!response.success) { alert("لا توجد أسئلة."); router.replace('/dashboard'); return; }
-
-    await logExamStart({ 
-        studentName: studentData.name, section: courseData.section, courseName: courseData.name,
-        examCode: requiredCode || 'General', deviceInfo: window.navigator.userAgent,
-        studentId: studentData.uid, courseId: courseId
-    });
-
-    const fetchedQuestions = response.data;
-    const durationSeconds = eligibility.durationMinutes * 60;
-    const endTime = Date.now() + (durationSeconds * 1000);
-
-    setQuestions(fetchedQuestions);
-    setTimeLeft(durationSeconds);
-    setInitialDuration(durationSeconds);
-    setStep('quiz');
-
-    localStorage.setItem(sessionKey, JSON.stringify({
-        studentName: studentData.name, 
-        section: courseData.section, 
-        questions: fetchedQuestions, 
-        answersIndices: {},
-        timeLeft: durationSeconds, 
-        initialDuration: durationSeconds,
-        endTime: endTime,
-        strikes: 0, 
-        cheatingHistory: [], 
-        finished: false
-    }));
-    try { if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen(); } catch (e) {}
   };
 
   const handleSubmit = async (reason = "تسليم طبيعي", isCheating = false) => {

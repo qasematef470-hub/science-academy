@@ -558,3 +558,44 @@ export async function resetLeaderboard(courseId) {
         return { success: false, message: error.message }; 
     }
 }
+
+// ==========================================
+// 🔥 3️⃣ SECURE VERIFICATION (التحقق الآمن)
+// ==========================================
+
+export async function verifyExamCodeServer(courseId, inputCode) {
+  try {
+    if (!adminDb) throw new Error("Database Connection Failed");
+
+    // 1. تنظيف الكود اللي الطالب كتبه (عشان لو فيه مسافات)
+    const cleanInput = inputCode ? String(inputCode).trim() : "";
+
+    // 2. نجيب الكود الصح من السيرفر (من exam_configs)
+    const configDoc = await adminDb.collection('exam_configs').doc(courseId).get();
+    let serverCode = "";
+
+    if (configDoc.exists && configDoc.data().examCode) {
+      serverCode = configDoc.data().examCode;
+    } else {
+      // 3. لو مش موجود، نجرب نجيبه من courses (احتياطي)
+      const courseDoc = await adminDb.collection('courses').doc(courseId).get();
+      if (courseDoc.exists) {
+        serverCode = courseDoc.data().examCode;
+      }
+    }
+
+    // 4. تنظيف كود السيرفر
+    const cleanServer = serverCode ? String(serverCode).trim() : "";
+
+    // 5. المقارنة (تتم في السر على السيرفر)
+    if (cleanInput === cleanServer) {
+      return { success: true };
+    } else {
+      return { success: false, message: "الكود غير صحيح" };
+    }
+
+  } catch (error) {
+    console.error("Verification Error:", error);
+    return { success: false, message: "حدث خطأ في التحقق" };
+  }
+}

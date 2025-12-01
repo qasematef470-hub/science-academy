@@ -43,14 +43,18 @@ export async function checkExamEligibility(studentId, courseId) {
       durationMinutes = d.examDuration || 45;
       examCode = d.examCode || "";
 
-      if (!hasSpecialAccess) {
-          const now = new Date().getTime();
-          const start = d.startDate ? new Date(d.startDate).getTime() : null;
-          const end = d.endDate ? new Date(d.endDate).getTime() : null;
+      // تعديل التوقيت: تحويل توقيت السيرفر لتوقيت القاهرة
+    const now = new Date().toLocaleString("en-US", { timeZone: "Africa/Cairo" });
+    const nowTime = new Date(now).getTime(); 
 
-          if (start && now < start) return { allowed: false, message: `⏳ الامتحان لم يبدأ بعد. (الموعد: ${new Date(start).toLocaleString('ar-EG')})` };
-          if (end && now > end) return { allowed: false, message: "⛔ انتهى وقت الامتحان الرسمي." };
-      }
+    // عدل المتغيرات تحت عشان تستخدم nowTime بدل now
+    if (!hasSpecialAccess) {
+      const start = d.startDate ? new Date(d.startDate).getTime() : null;
+      const end = d.endDate ? new Date(d.endDate).getTime() : null;
+      // لاحظ استخدام nowTime هنا
+      if (start && nowTime < start) return { allowed: false, message: `⏳ الامتحان لم يبدأ بعد.` };
+      if (end && nowTime > end) return { allowed: false, message: "⛔ انتهى وقت الامتحان الرسمي." };
+    }
     } else {
         // Fallback: لو مفيش إعدادات محفوظة للمادة دي، ندي قيم افتراضية عشان السيستم مايقعش
         // ممكن هنا نقرر نمنع الامتحان لو مفيش إعدادات، بس للأمان هنخليه 45 دقيقة
@@ -558,7 +562,6 @@ export async function resetLeaderboard(courseId) {
         return { success: false, message: error.message }; 
     }
 }
-
 // ==========================================
 // 🔥 3️⃣ SECURE VERIFICATION (التحقق الآمن)
 // ==========================================

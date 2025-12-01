@@ -114,6 +114,7 @@ export default function ExamPage() {
                  // استكمال الجلسة المفتوحة
                  setQuestions(parsed.questions);
                  setAnswersIndices(parsed.answersIndices || {}); 
+                 setEnteredCode(parsed.examCode || "");
                  setTimeLeft(remainingTime);
                  setInitialDuration(parsed.initialDuration);
                  setStrikes(parsed.strikes || 0);
@@ -340,6 +341,7 @@ export default function ExamPage() {
             section: courseData.section, 
             questions: fetchedQuestions, 
             answersIndices: {},
+            examCode: enteredCode,
             timeLeft: durationSeconds, 
             initialDuration: durationSeconds,
             endTime: endTime,
@@ -388,7 +390,7 @@ export default function ExamPage() {
         answers: answersAsText, 
         variants: variantsMap, 
         timeTaken: formattedTime, cheatingLog: isCheating ? cheatingHistory : null,
-        forcedStatus: isCheating ? `تم الطرد (${reason})` : "تم التسليم ✅", questionIds, deviceInfo, examCode: requiredCode || 'General' 
+        forcedStatus: isCheating ? `تم الطرد (${reason})` : "تم التسليم ✅", questionIds, deviceInfo, examCode: enteredCode || 'General' 
     });
 
     if (result.success) {

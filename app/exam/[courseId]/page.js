@@ -71,6 +71,18 @@ export default function ExamPage() {
             setStudentData({ name: userDoc.data().name, email: userDoc.data().email, uid: user.uid });
         }
 
+        // ✅ التصحيح: قراءة كود الامتحان من مكانه الصحيح (exam_configs) بناءً على اسم المادة
+        const examConfigDoc = await getDoc(doc(db, 'exam_configs', courseId));
+        if (examConfigDoc.exists() && isMountedRef.current) {
+            console.log("Exam Code Found:", examConfigDoc.data().examCode); // عشان تتأكد في الكونسول
+            setRequiredCode(examConfigDoc.data().examCode || "");
+        } else {
+            // احتياطي: لو ملقاش الكود في exam_configs يدور عليه جوه بيانات الكورس نفسه
+            const courseDocCheck = await getDoc(doc(db, 'courses', courseId));
+            if (courseDocCheck.exists() && courseDocCheck.data().examCode) {
+                setRequiredCode(courseDocCheck.data().examCode);
+            }
+        }
         const settingsDoc = await getDoc(doc(db, 'settings', 'config'));
         if (settingsDoc.exists() && isMountedRef.current) {
             setRequiredCode(settingsDoc.data().examCode || "");
@@ -266,7 +278,10 @@ export default function ExamPage() {
   // الفحص بيتم هنا لما الطالب يضغط زرار البداية، مش أول ما الصفحة تفتح
   const handleStartExam = async () => {
     // 1. فحص كود الامتحان محلياً الأول
-    if (requiredCode && enteredCode !== requiredCode) { alert("⛔ كود الامتحان غير صحيح!"); return; }
+    if (requiredCode && enteredCode.trim() !== requiredCode.toString().trim()) { 
+    alert("⛔ كود الامتحان غير صحيح!"); 
+    return; 
+    }
 
     setStep('loading');
     const sessionKey = `exam_session_${courseId}_${studentData.uid}`;

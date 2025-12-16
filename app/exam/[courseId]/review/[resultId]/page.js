@@ -5,214 +5,200 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { useRouter, useParams } from 'next/navigation';
 import 'katex/dist/katex.min.css';
-import Latex from 'react-latex-next';
+import MathText from '@/app/components/ui/MathText';
 
 export default function ExamReviewPage() {
-  const router = useRouter();
-  const params = useParams();
-  const { courseId, resultId } = params;
+    const router = useRouter();
+    const params = useParams();
+    const { courseId, resultId } = params;
+    useEffect(() => {
+          document.title = "المراجعة | Science Academy";
+        }, []);
 
-  const [loading, setLoading] = useState(true);
-  const [data, setData] = useState(null); // { result, questions }
-  const [error, setError] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [data, setData] = useState(null); 
+    const [error, setError] = useState(null);
+    const [isInstructor, setIsInstructor] = useState(false);
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (!user) { router.push('/login'); return; }
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, async (user) => {
+            if (!user) { router.replace('/login'); return; }
 
-      try {
-        // 1. جلب ملف النتيجة
-        const resultRef = doc(db, 'results', resultId);
-        const resultSnap = await getDoc(resultRef);
+            try {
+                // 1. جلب وثيقة النتيجة
+                const resultRef = doc(db, 'results', resultId);
+                const resultSnap = await getDoc(resultRef);
 
-        if (!resultSnap.exists()) { setError("النتيجة غير موجودة."); setLoading(false); return; }
-        const resultData = resultSnap.data();
+                if (!resultSnap.exists()) { setError("النتيجة غير موجودة."); setLoading(false); return; }
+                const resultData = resultSnap.data();
 
-        // 2. التحقق من الصلاحيات (صاحب النتيجة فقط)
-        if (resultData.studentId !== user.uid) { setError("غير مصرح لك بدخول هذه الصفحة."); setLoading(false); return; }
+               // التحقق من الملكية
+                if (resultData.studentId !== user.uid) {
+                    // لو مش الطالب، نتأكد هل أنت مدرس المادة؟
+                    const courseSnap = await getDoc(doc(db, 'courses', courseId));
+                    
+                    // لو الكورس موجود والـ instructorId هو نفسه الـ user.uid
+                    if (courseSnap.exists() && courseSnap.data().instructorId === user.uid) {
+                        setIsInstructor(true); // تمام أنت المدرس
+                    } else {
+                        // لو لا طالب ولا مدرس المادة => اطرده
+                        setError("غير مصرح لك بدخول هذه الصفحة (خاصة بالطالب ومدرس المادة فقط)."); 
+                        setLoading(false); 
+                        return; 
+                    }
+                }
 
-        // 3. التحقق من إذن المراجعة (من الأدمن)
-        const settingsRef = doc(db, 'exam_settings', resultData.examCode || 'General');
-        const settingsSnap = await getDoc(settingsRef);
-        
-        if (!settingsSnap.exists() || !settingsSnap.data().isVisible) {
-            setError("⛔ المراجعة مغلقة حالياً من قبل الأدمن.");
-            setLoading(false);
-            return;
-        }
+                // 2. تحديد الأسئلة المطلوبة
+                const qIds = resultData.questionIds || [];
+                // دعم للنتائج القديمة
+                if (qIds.length === 0 && resultData.answers) qIds.push(...Object.keys(resultData.answers));
 
-        // 4. جلب الأسئلة الأصلية
-        const qIds = resultData.questionIds || [];
-        if (qIds.length === 0) {
-            // دعم الامتحانات القديمة (Legacy)
-             if (resultData.answers) qIds.push(...Object.keys(resultData.answers));
-        }
+                if (qIds.length === 0) { setError("لا توجد بيانات للأسئلة."); setLoading(false); return; }
 
-        if (qIds.length === 0) { setError("لا توجد بيانات للأسئلة."); setLoading(false); return; }
-
-        // جلب كل سؤال من بنك الأسئلة
-        const questionsPromises = qIds.map(id => getDoc(doc(db, 'questions_bank', id)));
-        const questionsSnaps = await Promise.all(questionsPromises);
-        
-        // 5. 🔥 السحر هنا: إعادة بناء ترتيب الاختيارات (Reconstruction)
-        const processedQuestions = questionsSnaps
-            .filter(snap => snap.exists())
-            .map(snap => {
-                const qData = snap.data();
-                const qId = snap.id;
+                // 3. جلب الأسئلة من بنك الأسئلة
+                const questionsPromises = qIds.map(id => getDoc(doc(db, 'questions_bank', id)));
+                const questionsSnaps = await Promise.all(questionsPromises);
                 
-                // هل توجد خريطة ترتيب مسجلة لهذا السؤال؟
-                const variantOrder = resultData.variants ? resultData.variants[qId] : null;
-                
-                let displayOptions = qData.options || [];
-
-                if (variantOrder && Array.isArray(variantOrder)) {
-                    // ✅ إعادة ترتيب الاختيارات بناءً على ما رآه الطالب
-                    // بنمشي على الخريطة (الأرقام) ونجيب الاختيار الأصلي المقابل لكل رقم
-                    displayOptions = variantOrder.map(originalIdx => qData.options[originalIdx]).filter(Boolean);
-                } 
-                // لو مفيش خريطة (امتحان قديم)، بنعرض الترتيب الافتراضي وخلاص
-
-                return {
-                    id: qId,
-                    ...qData,
-                    options: displayOptions
-                };
-            });
-
-        setData({ result: resultData, questions: processedQuestions });
-
-      } catch (err) {
-        console.error(err);
-        setError("حدث خطأ أثناء تحميل المراجعة.");
-      }
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, [resultId, router]);
-
-  if (loading) return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-[#0B1120] text-white dir-rtl">
-        <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-        <p className="mt-4 font-bold text-gray-400">جاري استرجاع ورقة إجابتك...</p>
-    </div>
-  );
-
-  if (error) return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-[#0B1120] text-white dir-rtl">
-        <div className="text-6xl mb-4">🚫</div>
-        <h2 className="text-2xl font-black text-red-500 mb-4">{error}</h2>
-        <button onClick={() => router.back()} className="px-6 py-3 bg-white/10 rounded-xl hover:bg-white/20 transition">عودة</button>
-    </div>
-  );
-
-  const { result, questions } = data;
-  const studentAnswers = result.answers || {};
-
-  return (
-    <div className="min-h-screen bg-[#0B1120] text-white dir-rtl font-sans select-none relative overflow-hidden" dir="rtl">
-        
-        {/* خلفية العلامة المائية للحماية */}
-        <div className="fixed inset-0 pointer-events-none z-0 opacity-[0.03] flex flex-wrap content-center justify-center gap-20 rotate-[-20deg]">
-            {Array(20).fill("").map((_, i) => (
-                <div key={i} className="text-gray-100 font-black text-4xl whitespace-nowrap">نسخة مراجعة - {result.studentName}</div>
-            ))}
-        </div>
-
-        {/* Header */}
-        <header className="bg-[#131B2E]/90 backdrop-blur-md sticky top-0 z-50 border-b border-white/10 p-4">
-            <div className="max-w-4xl mx-auto flex justify-between items-center">
-                <div>
-                    <h1 className="font-black text-xl text-white">تقرير المراجعة 📝</h1>
-                    <p className="text-sm text-gray-400">الطالب: <span className="text-blue-400">{result.studentName}</span></p>
-                </div>
-                <div className="text-left bg-black/30 px-4 py-2 rounded-xl border border-white/10">
-                    <div className="text-xs text-gray-400">الدرجة النهائية</div>
-                    <div className={`text-2xl font-black ${result.score >= result.total/2 ? 'text-green-400' : 'text-red-400'}`}>
-                        {result.score} <span className="text-base text-gray-500">/ {result.total}</span>
-                    </div>
-                </div>
-            </div>
-        </header>
-
-        <main className="max-w-4xl mx-auto p-6 space-y-8 pb-20 relative z-10">
-            
-            {/* رسالة توضيحية */}
-            <div className="bg-blue-600/10 border border-blue-600/20 p-4 rounded-xl flex gap-3 items-center">
-                <span className="text-2xl">💡</span>
-                <p className="text-sm text-blue-200">هذه النسخة تعرض ترتيب الأسئلة والاختيارات تماماً كما ظهرت لك أثناء الامتحان. الإجابات الصحيحة مظللة باللون الأخضر.</p>
-            </div>
-
-            {questions.map((q, idx) => {
-                const studentAnswerText = studentAnswers[q.id]; 
-                const correctAnswerText = q.options.find(opt => opt.isCorrect)?.text;
-                
-                const isCorrect = studentAnswerText === correctAnswerText;
-                const isSkipped = !studentAnswerText; 
-
-                return (
-                    <div key={q.id} className={`rounded-3xl border-2 p-6 relative overflow-hidden transition-all ${isCorrect ? 'bg-green-500/5 border-green-500/20' : isSkipped ? 'bg-yellow-500/5 border-yellow-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
+                const processedQuestions = questionsSnaps
+                    .filter(snap => snap.exists())
+                    .map(snap => {
+                        const qData = snap.data();
+                        const qId = snap.id;
                         
-                        {/* رأس السؤال */}
-                        <div className="flex justify-between items-start mb-4">
-                            <span className="bg-black/30 px-3 py-1 rounded-lg text-xs font-bold text-gray-400">سؤال {idx + 1}</span>
-                            {isCorrect ? <span className="text-green-400 font-bold flex items-center gap-1">✅ إجابة صحيحة</span> : 
-                             isSkipped ? <span className="text-yellow-400 font-bold flex items-center gap-1">⚠ لم يتم الحل</span> :
-                             <span className="text-red-400 font-bold flex items-center gap-1">❌ إجابة خاطئة</span>}
-                        </div>
+                        // 🔥 أهم جزء: استعادة الترتيب العشوائي
+                        // بنشوف هل النتيجة متسجل فيها variants لهذا السؤال ولا لأ
+                        const variantIndices = resultData.variants ? resultData.variants[qId] : null;
+                        let displayOptions = qData.options || [];
 
-                        {/* المحتوى */}
-                        {q.image && <img src={q.image} alt="Question" className="max-h-60 rounded-xl mb-4 border border-white/10" />}
-                        <div className="text-lg font-bold text-white mb-6 leading-relaxed"><Latex>{q.question}</Latex></div>
+                        // لو لقينا خريطة ترتيب، بنعيد ترتيب الخيارات بناء عليها
+                        if (variantIndices && Array.isArray(variantIndices) && variantIndices.length > 0) {
+                            const reordered = variantIndices.map(idx => qData.options[idx]).filter(Boolean);
+                            // تأكيد إن العدد مظبوط عشان لو حصل تغيير في بنك الأسئلة ميبوظش الدنيا
+                            if (reordered.length === qData.options.length) {
+                                displayOptions = reordered;
+                            }
+                        }
 
-                        {/* الاختيارات (Read Only) */}
-                        <div className="space-y-3 pointer-events-none">
-                            {q.options.map((opt, optIdx) => {
-                                const isSelectedByStudent = studentAnswerText === opt.text;
-                                const isActuallyCorrect = opt.isCorrect;
-                                
-                                let styleClass = "border-white/5 bg-[#0B1120] text-gray-400 opacity-60"; // Default dimmed
-                                let icon = null;
+                        return { id: qId, ...qData, options: displayOptions };
+                    });
 
-                                if (isActuallyCorrect) {
-                                    // الإجابة الصحيحة (دائماً منورة أخضر)
-                                    styleClass = "border-green-500 bg-green-500/20 text-white shadow-[0_0_10px_rgba(34,197,94,0.2)] opacity-100";
-                                    icon = "✅";
-                                } 
-                                
-                                if (isSelectedByStudent) {
-                                    if (isActuallyCorrect) {
-                                        // الطالب اختار صح
-                                        styleClass = "border-green-500 bg-green-500/20 text-white ring-2 ring-green-400 opacity-100";
-                                        icon = "👏"; 
-                                    } else {
-                                        // الطالب اختار غلط
-                                        styleClass = "border-red-500 bg-red-500/20 text-white opacity-100";
-                                        icon = "❌ اختيارك";
-                                    }
-                                }
+                setData({ result: resultData, questions: processedQuestions });
 
-                                return (
-                                    <div key={optIdx} className={`p-4 rounded-xl border flex items-center justify-between transition-all ${styleClass}`}>
-                                        <div className="flex items-center gap-3">
-                                            <span className="font-bold text-sm opacity-50">{String.fromCharCode(65 + optIdx)}</span>
-                                            <span className="font-medium"><Latex>{opt.text}</Latex></span>
-                                        </div>
-                                        {icon && <span className="text-sm font-bold">{icon}</span>}
-                                    </div>
-                                );
-                            })}
-                        </div>
+            } catch (err) {
+                console.error(err);
+                setError("حدث خطأ أثناء تحميل المراجعة.");
+            }
+            setLoading(false);
+        });
+        return () => unsubscribe();
+
+    }, [resultId, router]);
+
+    if (loading) return <div className="min-h-screen flex items-center justify-center bg-[#0B1120] text-white"><div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div></div>;
+    if (error) return <div className="min-h-screen flex items-center justify-center bg-[#0B1120] text-red-500 font-bold text-xl">{error}</div>;
+
+    const { result, questions } = data;
+    const studentAnswers = result.answers || {};
+
+    return (
+        <div className="min-h-screen bg-[#0B1120] text-white dir-rtl font-sans pb-20" dir="rtl">
+            
+            {/* Header */}
+            <header className="bg-[#131B2E]/80 backdrop-blur-md border-b border-white/10 p-4 sticky top-0 z-50 shadow-lg">
+                <div className="max-w-4xl mx-auto flex justify-between items-center">
+                    <div>
+                        <h1 className="font-black text-2xl text-white">نتيجة الامتحان 📝</h1>
+                        <p className="text-sm text-gray-400 mt-1">{result.studentName} | {new Date(result.submittedAt?.toDate()).toLocaleDateString('ar-EG')}</p>
                     </div>
-                );
-            })}
-        </main>
-        
-        <div className="fixed bottom-0 w-full bg-[#131B2E] border-t border-white/10 p-4 flex justify-center z-50">
-            <button onClick={() => router.push('/dashboard')} className="px-8 py-3 bg-white text-black font-bold rounded-xl hover:bg-gray-200 transition shadow-lg">
-                عودة للرئيسية 🏠
-            </button>
+                    <div className="flex flex-col items-end">
+                        <div className={`px-4 py-2 rounded-xl font-black text-2xl border ${result.score >= result.total/2 ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
+                            {result.score} <span className="text-sm text-gray-400 font-medium">/ {result.total}</span>
+                        </div>
+                        <span className="text-xs text-gray-500 mt-1">الدرجة النهائية</span>
+                    </div>
+                </div>
+            </header>
+
+            <main className="max-w-4xl mx-auto p-4 md:p-8 space-y-8">
+                {questions.map((q, idx) => {
+                    const studentAnswerText = studentAnswers[q.id]; 
+                    const correctOpt = q.options.find(opt => opt.isCorrect); // دي بتجيب الإجابة الصح من الـ Options (اللي اترتبت خلاص)
+                    const correctAnswerText = correctOpt?.text;
+                    
+                    const isCorrect = studentAnswerText === correctAnswerText;
+                    const isSkipped = !studentAnswerText; 
+                    
+                    let borderClass = isCorrect ? 'border-green-500/30' : isSkipped ? 'border-yellow-500/30' : 'border-red-500/30';
+                    let bgStatus = isCorrect ? 'bg-green-500/5' : isSkipped ? 'bg-yellow-500/5' : 'bg-red-500/5';
+
+                    return (
+                        <div key={q.id} className={`rounded-3xl border-2 ${borderClass} ${bgStatus} p-6 relative overflow-hidden transition-all hover:border-opacity-50`}>
+                            
+                            {/* شريط الحالة */}
+                            <div className="flex items-center gap-3 mb-6">
+                                <span className="bg-[#0B1120] border border-white/10 w-10 h-10 flex items-center justify-center rounded-full text-white font-bold text-lg shadow-inner">
+                                    {idx + 1}
+                                </span>
+                                {isCorrect && <span className="bg-green-500/20 text-green-400 px-3 py-1 rounded-lg text-sm font-bold border border-green-500/20">✅ إجابة صحيحة</span>}
+                                {isSkipped && <span className="bg-yellow-500/20 text-yellow-400 px-3 py-1 rounded-lg text-sm font-bold border border-yellow-500/20">⚠ لم يتم الحل</span>}
+                                {!isCorrect && !isSkipped && <span className="bg-red-500/20 text-red-400 px-3 py-1 rounded-lg text-sm font-bold border border-red-500/20">❌ إجابة خاطئة</span>}
+                            </div>
+
+                            {/* السؤال */}
+                            {q.image && (
+                                <div className="mb-6 rounded-xl overflow-hidden border border-white/10 bg-black/20">
+                                    <img src={q.image} alt="" className="w-full max-h-80 object-contain" />
+                                </div>
+                            )}
+                            
+                            <div className="text-xl md:text-2xl font-bold text-gray-100 mb-8 leading-loose dir-rtl">
+                                <MathText text={q.question} />
+                            </div>
+
+                            {/* الخيارات */}
+                            <div className="grid gap-3">
+                                {q.options.map((opt, i) => {
+                                    // المقارنة بالنص لأن الترتيب اختلف
+                                    const isSelected = studentAnswerText === opt.text;
+                                    const isActuallyCorrect = opt.isCorrect;
+
+                                    let optionStyle = "border-white/5 bg-[#131B2E] text-gray-400 hover:bg-[#1A253A]"; 
+                                    let statusIcon = null;
+
+                                    if (isActuallyCorrect) {
+                                        optionStyle = "border-green-500 bg-green-500/10 text-green-100 shadow-[0_0_15px_rgba(34,197,94,0.2)]";
+                                        statusIcon = "✅";
+                                    } else if (isSelected && !isActuallyCorrect) {
+                                        optionStyle = "border-red-500 bg-red-500/10 text-red-100 shadow-[0_0_15px_rgba(239,68,68,0.2)]";
+                                        statusIcon = "❌";
+                                    }
+
+                                    return (
+                                        <div key={i} className={`p-4 rounded-xl border-2 flex items-center justify-between transition-all ${optionStyle}`}>
+                                            <div className="flex items-center gap-4 w-full">
+                                                <div className={`w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full text-sm font-bold border ${isSelected || isActuallyCorrect ? 'border-current bg-current bg-opacity-20' : 'border-gray-600'}`}>
+                                                    {String.fromCharCode(65 + i)}
+                                                </div>
+                                                <div className="font-medium text-lg flex-1 break-words dir-rtl">
+                                                    <MathText text={opt.text} />
+                                                </div>
+                                            </div>
+                                            {statusIcon && <span className="text-xl mr-3">{statusIcon}</span>}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    );
+                })}
+            </main>
+
+            <div className="fixed bottom-0 w-full bg-[#131B2E]/90 backdrop-blur border-t border-white/10 p-4 flex justify-center z-40">
+                <button onClick={() => router.push(isInstructor ? '/admin' : '/dashboard')} className="px-10 py-4 bg-white hover:bg-gray-100 text-black font-black text-lg rounded-2xl shadow-xl hover:scale-[1.02] transition-transform flex items-center gap-2">
+                    <span>{isInstructor ? '🔙' : '🏠'}</span>
+                    <span>{isInstructor ? 'العودة للوحة التحكم' : 'العودة للرئيسية'}</span>
+                </button>
+            </div>
         </div>
-    </div>
-  );
+    );
 }

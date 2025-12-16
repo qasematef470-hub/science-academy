@@ -1,255 +1,390 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc, getDocs, collection, query, where, Timestamp } from 'firebase/firestore';
+import { useState, useEffect, useCallback } from 'react';
+import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, sendEmailVerification } from 'firebase/auth';
+import { doc, setDoc, getDoc, Timestamp } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
+import BrandLogo from '../components/ui/BrandLogo';
 
 export default function SignupPage() {
+    useEffect(() => {
+    document.title = "إنشاء حساب جديد | Science Academy";
+  }, []);
   const router = useRouter();
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    password: '',
-    section: '',
-  });
   
-  const [showPassword, setShowPassword] = useState(false);
-  const [availableCourses, setAvailableCourses] = useState([]);
-  const [selectedCourses, setSelectedCourses] = useState([]);
+  // --- States ---
+  const [isDark, setIsDark] = useState(true); // ✅ زرار الثيم
   const [loading, setLoading] = useState(false);
-  const [fetchingCourses, setFetchingCourses] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [fetchingStructure, setFetchingStructure] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   const [error, setError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
-  const fetchCoursesBySection = async (section) => {
-    if (!section) return;
-    setFetchingCourses(true);
-    setAvailableCourses([]);
-    setSelectedCourses([]); 
+  // 🔥 1. هيكلة الجامعة
+  const [universityStructure, setUniversityStructure] = useState([]);
+
+  // 🔥 2. وضع الأجازة
+  const [isVacationMode, setIsVacationMode] = useState(false);
+
+  // Form Data
+  const [formData, setFormData] = useState({
+    firstName: '', middleName: '', lastName: '',
+    phone: '', parentPhone: '', governorate: '', 
+    email: '', password: '', 
+    // Academic
+    university: '', college: '', year: '', section: '',
+    // Vacation
+    vacationType: 'student', 
+    schoolYear: '3rd Sec',
+    collegeType: 'scientific',
+    gradFaculty: '',
+    gradYear: ''
+  });
+
+  const governorates = [
+      "القاهرة", "الجيزة", "الإسكندرية", "الدقهلية", "الشرقية", "المنوفية", 
+      "القليوبية", "البحيرة", "الغربية", "بور سعيد", "دمياط", "الإسماعيلية", 
+      "السويس", "كفر الشيخ", "الفيوم", "بني سويف", "المنيا", "أسيوط", 
+      "سوهاج", "قنا", "الأقصر", "أسوان", "البحر الأحمر", "الوادي الجديد", 
+      "مطروح", "شمال سيناء", "جنوب سيناء"
+  ];
+
+  // جلب الهيكلة
+  const fetchUniversityStructure = useCallback(async () => {
+    setFetchingStructure(true);
+    setFetchError(false);
     try {
-      const q = query(collection(db, 'courses'), where('section', '==', section));
-      const querySnapshot = await getDocs(q);
-      const courses = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setAvailableCourses(courses);
-    } catch (err) {
-      console.error("Error fetching courses:", err);
-    } finally {
-      setFetchingCourses(false);
-    }
-  };
+        const docRef = doc(db, 'settings', 'university_structure');
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            setUniversityStructure(data.structure || []);
+        } else {
+            setUniversityStructure([]);
+        }
+    } catch (err) { 
+        console.error(err); 
+        setFetchError(true);
+    } 
+    finally { setFetchingStructure(false); }
+  }, []);
 
   useEffect(() => {
-    if (formData.section) {
-      fetchCoursesBySection(formData.section);
-    } else {
-      setAvailableCourses([]);
-    }
-  }, [formData.section]);
+    fetchUniversityStructure();
+  }, [fetchUniversityStructure]);
 
-  const handleCheckboxChange = (courseId) => {
-    if (selectedCourses.includes(courseId)) {
-      setSelectedCourses(selectedCourses.filter(id => id !== courseId));
-    } else {
-      setSelectedCourses([...selectedCourses, courseId]);
-    }
+  // --- Helpers ---
+  const getUniversities = () => universityStructure.map(u => u.name);
+  
+  const getColleges = () => {
+      if (!formData.university) return [];
+      const uniObj = universityStructure.find(u => u.name === formData.university);
+      return uniObj ? uniObj.colleges.map(c => c.name) : [];
+  };
+
+  const getYears = () => {
+      if (!formData.university || !formData.college) return [];
+      const uniObj = universityStructure.find(u => u.name === formData.university);
+      const colObj = uniObj?.colleges.find(c => c.name === formData.college);
+      return colObj ? colObj.years.map(y => y.name) : [];
+  };
+
+  const getSections = () => {
+      if (!formData.university || !formData.college || !formData.year) return [];
+      const uniObj = universityStructure.find(u => u.name === formData.university);
+      const colObj = uniObj?.colleges.find(c => c.name === formData.college);
+      const yearObj = colObj?.years.find(y => y.name === formData.year);
+      return yearObj ? yearObj.sections : [];
+  };
+
+  const handleNameInput = (field, value) => {
+      if (/^[\u0600-\u06FF\s]*$/.test(value)) setFormData({ ...formData, [field]: value });
+  };
+
+  // --- Validation & Submit ---
+  const validateForm = () => {
+      setError('');
+      if (!formData.firstName || !formData.middleName || !formData.lastName) return "الاسم الثلاثي مطلوب.";
+      if (formData.phone.length < 11 || formData.parentPhone.length < 11) return "رقم الهاتف غير صحيح.";
+      if (!formData.governorate) return "اختر المحافظة.";
+      if (!isVacationMode) {
+          if (!formData.university || !formData.college || !formData.year || !formData.section) return "استكمل البيانات الدراسية.";
+      }
+      return null;
+  };
+
+  const saveUserToDB = async (user) => {
+      const fullName = `${formData.firstName} ${formData.middleName} ${formData.lastName}`;
+      const userData = {
+        uid: user.uid,
+        firstName: formData.firstName, middleName: formData.middleName, lastName: formData.lastName,
+        displayName: fullName, 
+        name: fullName, 
+        phone: formData.phone, parentPhone: formData.parentPhone,
+        governorate: formData.governorate, email: user.email,
+        role: 'student', enrolledCourses: [], createdAt: Timestamp.now(), isLocked: false,
+        isVacationMode: isVacationMode
+      };
+
+      if (!isVacationMode) {
+          userData.university = formData.university;
+          userData.college = formData.college;
+          userData.year = formData.year;
+          userData.section = formData.section;
+      } else {
+          userData.vacationDetails = {
+              type: formData.vacationType,
+              ...(formData.vacationType === 'student' && { year: formData.schoolYear }),
+              ...(formData.vacationType === 'college_student' && { 
+                  collegeType: formData.collegeType, year: formData.year, collegeName: formData.college 
+              }),
+              ...(formData.vacationType === 'grad' && { faculty: formData.gradFaculty, gradYear: formData.gradYear })
+          };
+      }
+      await setDoc(doc(db, 'users', user.uid), userData, { merge: true });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
-    setError('');
-
-    if (!formData.section) {
-        setError("يرجى اختيار الشعبة أولاً.");
-        setLoading(false);
-        return;
-    }
-
-    if (selectedCourses.length === 0) {
-        setError("يجب اختيار مادة واحدة على الأقل للاشتراك.");
-        setLoading(false);
-        return;
-    }
-
+    const valError = validateForm();
+    if (valError) { setError(valError); return; }
+    
+    setLoading(true); 
     try {
       const emailToRegister = formData.email.includes('@') ? formData.email : `${formData.email}@science.academy.com`;
-      
       const userCredential = await createUserWithEmailAndPassword(auth, emailToRegister, formData.password);
       const user = userCredential.user;
-
-      const enrolledCoursesData = selectedCourses.map(courseId => ({
-        courseId: courseId,
-        status: 'pending',
-        paid: false
-      }));
-
-      await setDoc(doc(db, 'users', user.uid), {
-        name: formData.name,
-        email: emailToRegister,
-        role: 'student',
-        section: formData.section,
-        enrolledCourses: enrolledCoursesData,
-        createdAt: Timestamp.now()
-      });
-
+      try { await sendEmailVerification(user); } catch (e) { console.error(e); }
+      await saveUserToDB(user);
       router.push('/dashboard'); 
-
     } catch (err) {
-      console.error(err);
-      if (err.code === 'auth/email-already-in-use') {
-        setError('هذا الاسم مسجل بالفعل، حاول استخدام اسم آخر.');
-      } else if (err.code === 'auth/weak-password') {
-        setError('كلمة المرور ضعيفة (يجب أن تكون 6 أحرف على الأقل).');
-      } else {
-        setError('حدث خطأ: ' + err.message);
-      }
-    } finally {
-      setLoading(false);
-    }
+      if (err.code === 'auth/email-already-in-use') setError('الإيميل مسجل بالفعل!');
+      else if (err.code === 'auth/weak-password') setError('كلمة المرور ضعيفة.');
+      else setError(err.message);
+    } finally { setLoading(false); }
   };
 
+  const handleGoogleSignup = async () => {
+    const valError = validateForm();
+    if (valError) { setError(valError + " (مطلوب لاستكمال التسجيل بجوجل)"); return; }
+    setGoogleLoading(true);
+    try {
+        const provider = new GoogleAuthProvider();
+        const result = await signInWithPopup(auth, provider);
+        await saveUserToDB(result.user);
+        router.push('/dashboard');
+    } catch (err) { setError("فشل التسجيل بجوجل: " + err.message); } 
+    finally { setGoogleLoading(false); }
+  };
+
+  // --- Theme Variables ---
+  const inputClass = isDark 
+      ? "bg-[#111] border border-white/10 text-white focus:bg-[#151515]" 
+      : "bg-white border border-gray-300 text-gray-900 focus:bg-gray-50";
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0B1120] px-4 dir-rtl relative overflow-hidden" dir="rtl">
+    <div className={`min-h-screen w-full flex dir-rtl font-sans overflow-hidden transition-colors duration-300 ${isDark ? 'bg-[#050505] text-white' : 'bg-gray-50 text-gray-900'}`}>
       
-      {/* Background Effects */}
-      <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] bg-blue-600/10 rounded-full blur-[100px]"></div>
-      <div className="absolute bottom-[-10%] left-[-10%] w-[600px] h-[600px] bg-purple-600/10 rounded-full blur-[120px]"></div>
-
-      <div className="max-w-2xl w-full bg-[#131B2E] p-8 rounded-3xl shadow-2xl border border-white/10 my-10 relative z-10">
-        
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-black text-white">إنشاء حساب طالب جديد 🎓</h2>
-          <p className="mt-2 text-sm text-gray-400 font-bold">Science Academy LMS</p>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-6">
+      {/* 🖼️ Right Side: Visual Image (Desktop Only) */}
+      <div className={`hidden lg:flex w-1/2 relative items-center justify-center overflow-hidden ${isDark ? 'bg-[#111]' : 'bg-gray-200'}`}>
+          <div className="absolute inset-0 z-0">
+             <Image 
+                src="/assets/images/singup.png" 
+                alt="Join Us" 
+                fill 
+                className="object-cover opacity-60 grayscale hover:grayscale-0 transition duration-700"
+             />
+             <div className={`absolute inset-0 bg-gradient-to-l from-transparent ${isDark ? 'to-[#050505]' : 'to-gray-50'}`}></div>
+          </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-             <div>
-                <label className="block text-xs font-bold text-gray-400 mb-2">الاسم الثلاثي</label>
-                <input
-                  required
-                  type="text"
-                  className="w-full p-3 bg-[#0B1120] border border-white/10 rounded-xl focus:border-blue-500 outline-none font-bold text-white placeholder-gray-600 transition"
-                  placeholder="مثال: القاسم عاطف"
-                  value={formData.name}
-                  onChange={(e) => setFormData({...formData, name: e.target.value})}
-                />
-             </div>
-             <div>
-                <label className="block text-xs font-bold text-gray-400 mb-2">الشعبة</label>
-                <select
-                  required
-                  className="w-full p-3 bg-[#0B1120] border border-white/10 rounded-xl focus:border-blue-500 outline-none font-bold text-white transition appearance-none"
-                  value={formData.section}
-                  onChange={(e) => setFormData({...formData, section: e.target.value})}
-                >
-                  <option value="" disabled className="text-gray-500">اختر شعبتك الدراسية...</option>
-                  <option value="physics" className="text-black">⚛️ طبيعة (Physics)</option>
-                  <option value="biology" className="text-black">🧬 بيولوجي (Biology)</option>
-                </select>
-             </div>
+          <div className="relative z-10 text-right p-12 max-w-lg">
+               <h1 className="text-6xl font-black mb-6 leading-tight">
+                   يلا مفيش وقت <br/>
+                   <span className="text-transparent bg-clip-text bg-gradient-to-l from-blue-500 to-purple-600">اعملك أكونت وأنجز.</span>
+               </h1>
+               <p className={`text-lg font-bold ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                   سجل الآن وانضم لأقوى منصة تعليمية. كورسات، مراجعات، وامتحانات هتظبطلك المنهج.
+               </p>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-             <div>
-                <label className="block text-xs font-bold text-gray-400 mb-2">اسم المستخدم (للدخول)</label>
-                <div className="flex dir-ltr">
-                    <input
-                    required
-                    type="text"
-                    className="w-full p-3 bg-[#0B1120] border border-white/10 border-l-0 rounded-l-xl focus:border-blue-500 outline-none text-right font-bold text-white"
-                    placeholder="ahmed2025"
-                    value={formData.email}
-                    onChange={(e) => setFormData({...formData, email: e.target.value})}
-                    />
-                    <span className="bg-white/5 border border-white/10 border-r-0 text-gray-400 font-bold p-3 rounded-r-xl text-xs flex items-center">
-                        @science.academy.com
-                    </span>
-                </div>
-             </div>
-
-             <div className="relative">
-                <label className="block text-xs font-bold text-gray-400 mb-2">كلمة المرور</label>
-                <div className="relative">
-                  <input
-                    required
-                    type={showPassword ? "text" : "password"}
-                    className="w-full p-3 bg-[#0B1120] border border-white/10 rounded-xl focus:border-blue-500 outline-none font-bold text-white pl-10 transition"
-                    placeholder="******"
-                    value={formData.password}
-                    onChange={(e) => setFormData({...formData, password: e.target.value})}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-blue-400"
-                  >
-                    {showPassword ? (
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
-                      </svg>
-                    ) : (
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                    )}
-                  </button>
-                </div>
-             </div>
-          </div>
-
-          {formData.section && (
-            <div className="bg-blue-900/10 p-5 rounded-xl border border-blue-500/20 animate-fade-in">
-                <h3 className="font-bold text-blue-400 mb-4 text-sm">📚 المواد المتاحة (اختر ما تريد الاشتراك به):</h3>
-                
-                {fetchingCourses ? (
-                    <div className="flex justify-center p-4">
-                        <div className="w-6 h-6 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                    </div>
-                ) : availableCourses.length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {availableCourses.map(course => (
-                            <label key={course.id} className={`flex items-center p-4 rounded-lg border-2 cursor-pointer transition-all ${selectedCourses.includes(course.id) ? 'bg-blue-600/10 border-blue-500 shadow-md scale-[1.02]' : 'bg-[#0B1120] border-white/5 hover:border-blue-500/50'}`}>
-                                <input 
-                                    type="checkbox" 
-                                    className="w-5 h-5 accent-blue-600 ml-3"
-                                    checked={selectedCourses.includes(course.id)}
-                                    onChange={() => handleCheckboxChange(course.id)}
-                                />
-                                <div>
-                                    <div className="font-bold text-white text-md">{course.name}</div>
-                                    <div className="text-xs text-gray-400 font-bold">{course.instructorName}</div>
-                                </div>
-                            </label>
-                        ))}
-                    </div>
-                ) : (
-                    <p className="text-red-400 font-bold text-center text-sm">لا توجد مواد متاحة لهذه الشعبة حالياً.</p>
-                )}
-            </div>
-          )}
-
-          {error && <div className="text-red-400 bg-red-500/10 p-3 rounded-lg text-sm text-center font-bold border border-red-500/20">{error}</div>}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className={`w-full py-4 px-4 border border-transparent text-lg font-bold rounded-xl text-white ${
-              loading ? 'bg-blue-600/50 cursor-not-allowed' : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 shadow-lg'
-            } transition-all`}
-          >
-            {loading ? 'جاري التسجيل...' : 'تسجيل حساب جديد ✨'}
-          </button>
-
-          <div className="text-center mt-4 border-t border-white/5 pt-4">
-             <p className="text-sm text-gray-500 font-bold">لديك حساب بالفعل؟ <Link href="/login" className="text-blue-400 hover:text-blue-300 font-bold underline">سجل دخول هنا</Link></p>
-          </div>
-
-        </form>
       </div>
+
+      {/* 📝 Left Side: The Form */}
+      <div className={`w-full lg:w-1/2 flex flex-col h-screen overflow-y-auto custom-scrollbar relative ${isDark ? 'bg-[#050505]' : 'bg-gray-50'}`}>
+          
+          <div className="p-8 md:p-12 lg:p-16 max-w-2xl mx-auto w-full">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-10">
+                <Link href="/" className="w-32 cursor-pointer hover:scale-105 transition-transform block">
+                    <BrandLogo />
+                </Link>
+
+                <div className="flex items-center gap-4">
+                     {/* ☀️ زرار الثيم */}
+                    <button 
+                        onClick={() => setIsDark(!isDark)} 
+                        className={`w-10 h-10 rounded-full flex items-center justify-center border transition ${isDark ? 'border-white/20 text-yellow-400 hover:bg-white/10' : 'border-gray-300 text-blue-600 hover:bg-white shadow-sm'}`}
+                    >
+                        {isDark ? '☀️' : '🌙'}
+                    </button>
+
+                    <Link href="/login" className={`text-sm font-bold transition ${isDark ? 'text-gray-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'}`}>تسجيل الدخول ➜</Link>
+                </div>
+            </div>
+
+            <div className="mb-10">
+                <h2 className="text-3xl font-black mb-2">أنشئ حسابك الآن 🚀</h2>
+                <p className={`${isDark ? 'text-gray-500' : 'text-gray-600'} font-medium`}>ادخل بياناتك بشكل صحيح للحصول على أفضل تجربة.</p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+
+                {/* 1. الاسم */}
+                <div className="space-y-4">
+                    <label className="text-sm font-bold text-blue-500">👤 الاسم الثلاثي</label>
+                    <div className="grid grid-cols-3 gap-4">
+                        <input required type="text" placeholder="الأول" className={`${inputClass} rounded-xl p-4 text-center font-bold focus:border-blue-500 outline-none transition`} value={formData.firstName} onChange={(e) => handleNameInput('firstName', e.target.value)} />
+                        <input required type="text" placeholder="الأب" className={`${inputClass} rounded-xl p-4 text-center font-bold focus:border-blue-500 outline-none transition`} value={formData.middleName} onChange={(e) => handleNameInput('middleName', e.target.value)} />
+                        <input required type="text" placeholder="العائلة" className={`${inputClass} rounded-xl p-4 text-center font-bold focus:border-blue-500 outline-none transition`} value={formData.lastName} onChange={(e) => handleNameInput('lastName', e.target.value)} />
+                    </div>
+                </div>
+
+                {/* 2. التواصل */}
+                <div className="space-y-4">
+                    <label className="text-sm font-bold text-blue-500">📱 بيانات التواصل</label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <input required type="tel" placeholder="رقم هاتفك" className={`${inputClass} rounded-xl p-4 font-bold focus:border-blue-500 outline-none transition dir-ltr text-right`} maxLength={11} value={formData.phone} onChange={(e) => setFormData({...formData, phone: e.target.value.replace(/\D/g, '')})} />
+                        <input required type="tel" placeholder="رقم ولي الأمر" className={`${inputClass} rounded-xl p-4 font-bold focus:border-blue-500 outline-none transition dir-ltr text-right`} maxLength={11} value={formData.parentPhone} onChange={(e) => setFormData({...formData, parentPhone: e.target.value.replace(/\D/g, '')})} />
+                        <select required className={`${inputClass} rounded-xl p-4 font-bold focus:border-blue-500 outline-none transition md:col-span-2`} value={formData.governorate} onChange={(e) => setFormData({...formData, governorate: e.target.value})}>
+                            <option value="" disabled>اختر المحافظة...</option>
+                            {governorates.map((gov, idx) => (<option key={idx} value={gov}>{gov}</option>))}
+                        </select>
+                    </div>
+                </div>
+
+                {/* 3. نوع الحساب (Toggle) */}
+                <div className={`p-4 rounded-xl border flex items-center justify-between ${isDark ? 'bg-blue-900/20 border-blue-500/20' : 'bg-blue-50 border-blue-200'}`}>
+                    <div>
+                        <h4 className={`font-bold text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>تسجيل لكورسات الأجازة/الصيف؟ 🏖️</h4>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" className="sr-only peer" checked={isVacationMode} onChange={(e) => setIsVacationMode(e.target.checked)} />
+                        <div className={`w-11 h-6 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600 ${isDark ? 'bg-gray-700' : 'bg-gray-300'}`}></div>
+                    </label>
+                </div>
+
+                {/* 4. البيانات الدراسية */}
+                <div className="space-y-4">
+                    <label className={`text-sm font-bold ${isVacationMode ? 'text-orange-500' : 'text-blue-500'}`}>
+                        {isVacationMode ? '🏖️ تفاصيل الأجازة' : '🎓 المرحلة الدراسية'}
+                    </label>
+
+                    {/* Academic */}
+                    {!isVacationMode && (
+                        <div className="space-y-4">
+                           {fetchingStructure ? <p className="text-gray-500 text-sm animate-pulse">جاري تحميل البيانات...</p> : (
+                               <>
+                                   <select required className={`${inputClass} rounded-xl p-4 font-bold focus:border-blue-500 outline-none transition w-full`} value={formData.university} onChange={(e) => setFormData({...formData, university: e.target.value, college: '', year: '', section: ''})}>
+                                        <option value="" disabled>اختر الجامعة</option>
+                                        {getUniversities().map((u, i) => <option key={i} value={u}>{u}</option>)}
+                                    </select>
+                                    <select required disabled={!formData.university} className={`${inputClass} rounded-xl p-4 font-bold focus:border-blue-500 outline-none transition w-full disabled:opacity-50`} value={formData.college} onChange={(e) => setFormData({...formData, college: e.target.value, year: '', section: ''})}>
+                                        <option value="" disabled>اختر الكلية</option>
+                                        {getColleges().map((c, i) => <option key={i} value={c}>{c}</option>)}
+                                    </select>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <select required disabled={!formData.college} className={`${inputClass} rounded-xl p-4 font-bold focus:border-blue-500 outline-none transition disabled:opacity-50`} value={formData.year} onChange={(e) => setFormData({...formData, year: e.target.value, section: ''})}>
+                                            <option value="" disabled>السنة</option>
+                                            {getYears().map((y, i) => <option key={i} value={y}>{y}</option>)}
+                                        </select>
+                                        <select required disabled={!formData.year} className={`${inputClass} rounded-xl p-4 font-bold focus:border-blue-500 outline-none transition disabled:opacity-50`} value={formData.section} onChange={(e) => setFormData({...formData, section: e.target.value})}>
+                                            <option value="" disabled>القسم</option>
+                                            {getSections().map((s, i) => <option key={i} value={s}>{s}</option>)}
+                                        </select>
+                                    </div>
+                               </>
+                           )}
+                        </div>
+                    )}
+
+                    {/* Vacation */}
+                    {isVacationMode && (
+                        <div className="space-y-4">
+                            <select className={`${inputClass} rounded-xl p-4 font-bold focus:border-orange-500 outline-none transition w-full`} value={formData.vacationType} onChange={(e) => setFormData({...formData, vacationType: e.target.value})}>
+                                <option value="student">طالب مدرسة</option>
+                                <option value="college_student">طالب جامعي</option>
+                                <option value="grad">خريج</option>
+                            </select>
+                             {formData.vacationType === 'student' && (
+                                <select className={`${inputClass} rounded-xl p-4 font-bold focus:border-orange-500 outline-none transition w-full`} value={formData.schoolYear} onChange={(e) => setFormData({...formData, schoolYear: e.target.value})}>
+                                     {['1st Prep', '2nd Prep', '3rd Prep', '1st Sec', '2nd Sec', '3rd Sec'].map(y => <option key={y} value={y}>{y}</option>)}
+                                </select>
+                            )}
+                             {formData.vacationType === 'college_student' && (
+                                <div className="grid grid-cols-2 gap-4">
+                                     <select className={`${inputClass} rounded-xl p-4 font-bold focus:border-orange-500 outline-none transition`} value={formData.collegeType} onChange={(e) => setFormData({...formData, collegeType: e.target.value})}>
+                                        <option value="scientific">كليات علمية</option>
+                                        <option value="literary">كليات أدبية</option>
+                                        <option value="other">أخرى</option>
+                                    </select>
+                                    <input type="text" placeholder="اسم الكلية" className={`${inputClass} rounded-xl p-4 font-bold focus:border-orange-500 outline-none transition`} value={formData.college} onChange={(e) => setFormData({...formData, college: e.target.value})} />
+                                </div>
+                            )}
+                             {formData.vacationType === 'grad' && (
+                                 <div className="grid grid-cols-2 gap-4">
+                                    <input type="text" placeholder="الكلية" className={`${inputClass} rounded-xl p-4 font-bold focus:border-orange-500 outline-none transition`} value={formData.gradFaculty} onChange={(e) => setFormData({...formData, gradFaculty: e.target.value})} />
+                                    <input type="text" placeholder="سنة التخرج" className={`${inputClass} rounded-xl p-4 font-bold focus:border-orange-500 outline-none transition`} value={formData.gradYear} onChange={(e) => setFormData({...formData, gradYear: e.target.value})} />
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                {/* 5. كلمة المرور */}
+                <div className="space-y-4">
+                    <label className="text-sm font-bold text-blue-500">🔐 تأمين الحساب</label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                         <input required type="email" placeholder="البريد الإلكتروني" className={`${inputClass} rounded-xl p-4 font-bold focus:border-blue-500 outline-none transition dir-ltr`} value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} />
+                         <div className="relative">
+                            <input required type={showPassword ? "text" : "password"} placeholder="كلمة المرور" className={`${inputClass} rounded-xl p-4 font-bold focus:border-blue-500 outline-none transition w-full pl-10`} value={formData.password} onChange={(e) => setFormData({...formData, password: e.target.value})} />
+                            <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute left-4 top-[50%] transform -translate-y-1/2 text-gray-400 hover:text-blue-500">{showPassword ? '👁️' : '🔒'}</button>
+                         </div>
+                    </div>
+                </div>
+
+                 {/* Google & Submit */}
+                 <div className={`pt-4 border-t space-y-4 ${isDark ? 'border-white/5' : 'border-gray-200'}`}>
+                    {error && <div className="text-red-500 text-sm font-bold text-center bg-red-500/10 p-3 rounded-lg border border-red-500/20">{error}</div>}
+                    
+                    <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl shadow-lg shadow-blue-900/20 transition-all hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2">
+                         {loading ? 'جاري الإنشاء...' : '🚀 إتمام التسجيل'}
+                    </button>
+
+                    <button type="button" onClick={handleGoogleSignup} disabled={googleLoading} className={`w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 border ${isDark ? 'bg-white text-gray-900 hover:bg-gray-100 border-white' : 'bg-white text-gray-700 hover:bg-gray-50 border-gray-300'}`}>
+                        {googleLoading ? 'جاري الاتصال...' : (
+                            <>
+                                <img src="https://www.svgrepo.com/show/475656/google-color.svg" className="w-5 h-5" alt="G" />
+                                <span>سجل بجوجل (Google)</span>
+                            </>
+                        )}
+                    </button>
+                 </div>
+            </form>
+          </div>
+      </div>
+
+      {/* ✅ زرار الدعم الفني العائم */}
+      <a 
+         href="https://wa.me/201100588901" 
+         target="_blank" 
+         className="fixed bottom-6 right-6 z-50 bg-[#25D366] text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-transform flex items-center justify-center gap-2 font-bold group"
+      >
+        <span className="text-xl">💬</span>
+        <span className="max-w-0 overflow-hidden group-hover:max-w-xs transition-all duration-300 whitespace-nowrap">الدعم الفني</span>
+      </a>
+
     </div>
   );
 }

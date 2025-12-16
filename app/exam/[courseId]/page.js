@@ -1,18 +1,29 @@
 'use client';
 import React, { useState, useEffect, useRef } from 'react'; 
 import 'katex/dist/katex.min.css';
-import Latex from 'react-latex-next';
+// ✅ استخدام MathText الجديد بدلاً من Latex
+import MathText from '@/app/components/ui/MathText'; 
 import { useRouter, useParams } from 'next/navigation';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
-// تأكد إن المسار ده صح عندك
-import { getExamQuestions, submitExamResult, logCheater, logExamStart, checkExamEligibility, getLeaderboard, verifyExamCodeServer } from '../../actions';
+import { getExamQuestions, submitExamResult, logCheater, logExamStart, checkExamEligibility, getLeaderboard, verifyExamCodeServer } from '@/app/actions/student';
+
+// --- 1️⃣ Icons ---
+const Icons = {
+    Clock: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+    Menu: () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>,
+    Cloud: () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" /></svg>,
+    Warning: () => <svg className="w-12 h-12 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+};
 
 export default function ExamPage() {
   const router = useRouter();
   const params = useParams(); 
   const courseId = params.courseId;
+  useEffect(() => {
+      document.title = "الإمتحان | Science Academy";
+    }, []);
 
   // --- States ---
   const [step, setStep] = useState('loading'); 
@@ -43,12 +54,22 @@ export default function ExamPage() {
   // Leaderboard State
   const [topStudents, setTopStudents] = useState([]);
 
+  // --- UI States ---
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); 
+  const [isSaving, setIsSaving] = useState(false); 
+
   // Refs
   const isSubmittingRef = useRef(false);
   const isMountedRef = useRef(true);
   const splitScreenIntervalRef = useRef(null);
   const timerIntervalRef = useRef(null);
   const clipboardIntervalRef = useRef(null);
+  
+  const answersRef = useRef(answersIndices);
+
+  useEffect(() => {
+    answersRef.current = answersIndices;
+  }, [answersIndices]);
 
   // Cleanup
   useEffect(() => {
@@ -56,7 +77,7 @@ export default function ExamPage() {
     return () => { isMountedRef.current = false; };
   }, []);
 
-  // 1️⃣ Init & Auth (تجهيز الصفحة فقط بدون منع الدخول)
+  // Init & Auth
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!isMountedRef.current) return;
@@ -65,19 +86,23 @@ export default function ExamPage() {
       try {
         setDeviceInfo(window.navigator.userAgent);
         const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (!userDoc.exists()) { router.replace('/dashboard'); return; }
         
-        if(isMountedRef.current) {
-            setStudentData({ name: userDoc.data().name, email: userDoc.data().email, uid: user.uid });
+        // 🔥 FIX 1: Ensure name is grabbed even if not in DB, fallback to User Object
+        let sName = user.displayName || "طالب غير مسجل";
+        let sEmail = user.email;
+        if (userDoc.exists()) {
+             sName = userDoc.data().name || sName;
+             sEmail = userDoc.data().email || sEmail;
         }
 
-        // ✅ التصحيح: قراءة كود الامتحان من مكانه الصحيح (exam_configs) بناءً على اسم المادة
+        if(isMountedRef.current) {
+            setStudentData({ name: sName, email: sEmail, uid: user.uid });
+        }
+
         const examConfigDoc = await getDoc(doc(db, 'exam_configs', courseId));
         if (examConfigDoc.exists() && isMountedRef.current) {
-            console.log("Exam Code Found:", examConfigDoc.data().examCode); // عشان تتأكد في الكونسول
             setRequiredCode(examConfigDoc.data().examCode || "");
         } else {
-            // احتياطي: لو ملقاش الكود في exam_configs يدور عليه جوه بيانات الكورس نفسه
             const courseDocCheck = await getDoc(doc(db, 'courses', courseId));
             if (courseDocCheck.exists() && courseDocCheck.data().examCode) {
                 setRequiredCode(courseDocCheck.data().examCode);
@@ -92,12 +117,8 @@ export default function ExamPage() {
         if (courseDoc.exists() && isMountedRef.current) setCourseData(courseDoc.data());
 
         const lbRes = await getLeaderboard(courseId);
-        if (lbRes.success && isMountedRef.current) {
-            setTopStudents(lbRes.data.slice(0, 3)); 
-        }
+        if (lbRes.success) setTopStudents(lbRes.data.slice(0, 3));
 
-        // هنا بنشوف لو هو كان "فاتح امتحان بالفعل" عشان يكمل (Resume)
-        // لكن لو هو مخلص أو لسه مدخلش، بنسيبه في شاشة الـ Intro عادي
         const sessionKey = `exam_session_${courseId}_${user.uid}`;
         const savedData = localStorage.getItem(sessionKey);
         
@@ -111,21 +132,25 @@ export default function ExamPage() {
              }
 
              if (remainingTime > 0) {
-                 // استكمال الجلسة المفتوحة
                  setQuestions(parsed.questions);
                  setAnswersIndices(parsed.answersIndices || {}); 
                  setEnteredCode(parsed.examCode || "");
                  setTimeLeft(remainingTime);
-                 setInitialDuration(parsed.initialDuration);
+                 setInitialDuration(parsed.initialDuration); // 🔥 FIX 2: Load initialDuration correctly
                  setStrikes(parsed.strikes || 0);
                  setCheatingHistory(parsed.cheatingHistory || []);
+                 
+                 // 🔥 FIX 3: Restore name from localStorage if state is lost
+                 if(parsed.studentName) {
+                    setStudentData(prev => ({ ...prev, name: parsed.studentName }));
+                 }
+
                  setStep('quiz');
-                 return; // نخرج عشان منعرضش الـ Intro
+                 return;
              }
           }
         }
         
-        // الوضع الطبيعي: اعرض شاشة الكود
         setStep('intro'); 
 
       } catch (error) { console.error("Init Error:", error); }
@@ -133,7 +158,7 @@ export default function ExamPage() {
     return () => unsubscribe();
   }, [courseId, router]);
 
-  // 2️⃣ Timer
+  // Timer
   useEffect(() => {
     if ((step === 'quiz' || step === 'review')) { 
       timerIntervalRef.current = setInterval(() => {
@@ -168,9 +193,20 @@ export default function ExamPage() {
     return () => clearInterval(timerIntervalRef.current);
   }, [step, courseId, studentData.uid]);
 
-  // 3️⃣ Security Logic
+  // --- 3️⃣ Security Logic & Ban Watcher ---
+  useEffect(() => {
+      if (strikes >= MAX_STRIKES) {
+          const timer = setTimeout(() => {
+              setWarningModal({ show: false, msg: '', count: 0 });
+              handleSubmit(`تم الطرد (تجاوز 3 مخالفات)`, true);
+          }, 500);
+          return () => clearTimeout(timer);
+      }
+  }, [strikes]);
+
   useEffect(() => {
     if (step !== 'quiz' && step !== 'review') return; 
+    
     const showPanicOverlay = () => {
         if (document.getElementById('panic-overlay')) return; 
         const blocker = document.createElement('div');
@@ -191,10 +227,8 @@ export default function ExamPage() {
             const newHistory = [...cheatingHistory, { reason, time: new Date().toLocaleTimeString() }];
             setCheatingHistory(newHistory);
             updateLocalStorage({ strikes: newCount, cheatingHistory: newHistory });
-            if (newCount >= MAX_STRIKES) {
-                setWarningModal({ show: false, msg: '', count: 0 });
-                handleSubmit(`تم الطرد (تجاوز 3 مخالفات: ${reason})`, true);
-            } else {
+            
+            if (newCount < MAX_STRIKES) {
                 setWarningModal({ show: true, msg: reason, count: newCount });
             }
             return newCount;
@@ -209,6 +243,7 @@ export default function ExamPage() {
         showPanicOverlay(); triggerStrike("محاولة استخدام أزرار محظورة");
       }
     };
+    
     const handleResize = () => {
       const isSplit = window.innerWidth < window.screen.width * 0.98; 
       if (isSplit) {
@@ -237,7 +272,7 @@ export default function ExamPage() {
     };
   }, [step, cheatingHistory, splitScreenWarning]);
 
-  // 4️⃣ Ban Timer
+  // Ban Timer
   useEffect(() => {
     if (splitScreenWarning && (step === 'quiz' || step === 'review')) {
         splitScreenIntervalRef.current = setInterval(() => {
@@ -258,7 +293,7 @@ export default function ExamPage() {
     return () => clearInterval(splitScreenIntervalRef.current);
   }, [splitScreenWarning, step]);
 
-  // --- Helpers ---
+  // Helpers
   const updateLocalStorage = (newData) => {
     if (!studentData.uid) return;
     const sessionKey = `exam_session_${courseId}_${studentData.uid}`;
@@ -266,39 +301,39 @@ export default function ExamPage() {
     localStorage.setItem(sessionKey, JSON.stringify({ ...oldData, ...newData }));
   };
 
+  // --- Answer Handler with AutoSave UI ---
   const handleAnswerSelect = (qId, optionIndex) => {
+    setIsSaving(true);
     setAnswersIndices(prev => {
         const newIndices = { ...prev };
         newIndices[qId] = optionIndex; 
         updateLocalStorage({ answersIndices: newIndices });
+        setTimeout(() => setIsSaving(false), 500);
         return newIndices;
     });
   };
 
-  // 🔥🔥🔥 هنا التصحيح كله 🔥🔥🔥
-  // الفحص بيتم هنا لما الطالب يضغط زرار البداية، مش أول ما الصفحة تفتح
-  const handleStartExam = async () => {
-    // 1. التأكد إن الطالب كتب حاجة
-    if (!enteredCode) { alert("من فضلك أدخل كود الامتحان"); return; }
+  const getDifficultyColor = (level) => {
+    const l = String(level).toLowerCase();
+    if (l === 'hard' || l === '3' || l === 'صعب') return { bg: 'bg-red-500/20', text: 'text-red-400', border: 'border-red-500/50', label: 'مستوى صعب 🔥' };
+    if (l === 'medium' || l === '2' || l === 'متوسط') return { bg: 'bg-yellow-500/20', text: 'text-yellow-400', border: 'border-yellow-500/50', label: 'مستوى متوسط ⚖️' };
+    return { bg: 'bg-green-500/20', text: 'text-green-400', border: 'border-green-500/50', label: 'مستوى سهل ✅' };
+  };
 
+  const handleStartExam = async () => {
+    if (!enteredCode) { alert("من فضلك أدخل كود الامتحان"); return; }
     setStep('loading');
 
     try {
-        // 🔥 2. التحقق الآمن (Server-Side)
-        // بننادي الدالة اللي عملناها في actions.js
         const verification = await verifyExamCodeServer(courseId, enteredCode);
 
-        // لو السيرفر قال "غلط"
         if (!verification.success) {
             setStep('intro');
-            alert("⛔ " + verification.message); // هيطلع رسالة "الكود غير صحيح"
+            alert("⛔ " + verification.message); 
             return;
         }
 
-        // ✅ 3. لو السيرفر قال "صح"، بنكمل باقي الإجراءات عادي جداً
         const sessionKey = `exam_session_${courseId}_${studentData.uid}`;
-        
-        // التحقق من الأهلية (هل امتحن قبل كده؟)
         const eligibility = await checkExamEligibility(studentData.uid, courseId);
         
         if (!eligibility.allowed && !eligibility.resume) { 
@@ -307,7 +342,11 @@ export default function ExamPage() {
             return; 
         }
         
-        // تنظيف الجلسة القديمة لو مسموح له يعيد
+        // 🔥 إضافة تنبيه الاستثناء (Exception Alert)
+        if (eligibility.isException) {
+            alert("🔓 تم تفعيل استثناء خاص لك من الأدمن للدخول!");
+        }
+
         if (eligibility.allowed && !eligibility.resume) {
             localStorage.removeItem(sessionKey);
         }
@@ -315,11 +354,9 @@ export default function ExamPage() {
             localStorage.removeItem(sessionKey);
         }
 
-        // جلب الأسئلة
         const response = await getExamQuestions(courseId);
         if (!response.success) { alert("لا توجد أسئلة."); router.replace('/dashboard'); return; }
 
-        // تسجيل بداية الامتحان
         await logExamStart({ 
             studentName: studentData.name, section: courseData.section || "General", courseName: courseData.name,
             examCode: enteredCode, 
@@ -337,7 +374,7 @@ export default function ExamPage() {
         setStep('quiz');
 
         localStorage.setItem(sessionKey, JSON.stringify({
-            studentName: studentData.name, 
+            studentName: studentData.name, // 🔥 FIX 4: Save Name in Storage explicitly
             section: courseData.section, 
             questions: fetchedQuestions, 
             answersIndices: {},
@@ -359,21 +396,55 @@ export default function ExamPage() {
     }
   };
 
+  // ✅ handleSubmit (Major Fixes for Name & Time)
   const handleSubmit = async (reason = "تسليم طبيعي", isCheating = false) => {
     if (isSubmittingRef.current) return;
     isSubmittingRef.current = true;
     setStep('loading'); 
 
-    const timeSpent = initialDuration - (timeLeft || 0);
-    const formattedTime = `${Math.floor(timeSpent / 60)}:${timeSpent % 60}`;
-    const questionIds = questions.map(q => q.id);
+    // 🔥 FIX 5: Robust Time Calculation
+    // Ensure numbers are valid
+    // 🔥 FIX 5: Robust Time Calculation (تم التعديل)
+    const safeInitial = initialDuration || (45 * 60);
+    let timeSpent;
 
+    // لو السبب انتهاء الوقت، احسب الوقت الكامل فوراً
+    if (reason === "انتهاء الوقت") {
+        timeSpent = safeInitial;
+    } else {
+        // لو تسليم يدوي، احسب الفرق
+        const safeTimeLeft = timeLeft !== null ? timeLeft : 0;
+        timeSpent = Math.max(0, safeInitial - safeTimeLeft);
+    }
+
+    const minutes = Math.floor(timeSpent / 60);
+    const seconds = timeSpent % 60;
+    const formattedTime = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    
+    // 🔥 FIX 6: Robust Name Retrieval (State -> Storage -> Fallback)
+    let finalStudentName = studentData.name;
+    if (!finalStudentName) {
+        const sessionKey = `exam_session_${courseId}_${studentData.uid}`;
+        const savedSession = JSON.parse(localStorage.getItem(sessionKey) || "{}");
+        finalStudentName = savedSession.studentName || "طالب غير معروف";
+    }
+
+    // DEBUGGING LOGS (افتح الـ Console لو لسه فيه مشكلة)
+    console.log("Submitting Result...", {
+        name: finalStudentName,
+        time: formattedTime,
+        initial: initialDuration,
+        left: timeLeft
+    });
+
+    const questionIds = questions.map(q => q.id);
     const answersAsText = {};
     const variantsMap = {};
+    const currentAnswers = answersRef.current; 
 
     questions.forEach(q => {
-        if (answersIndices[q.id] !== undefined) {
-            const idx = answersIndices[q.id];
+        if (currentAnswers[q.id] !== undefined) {
+            const idx = currentAnswers[q.id];
             if (q.options[idx]) {
                 answersAsText[q.id] = q.options[idx].text;
             }
@@ -383,14 +454,23 @@ export default function ExamPage() {
         }
     });
 
-    if (isCheating) await logCheater({ studentName: studentData.name, section: courseData.section, reason, logs: cheatingHistory, deviceInfo });
+    if (isCheating) await logCheater({ studentName: finalStudentName, section: courseData.section, reason, logs: cheatingHistory, deviceInfo });
 
     const result = await submitExamResult({
-        studentName: studentData.name, studentId: studentData.uid, section: courseData.section, courseId, 
+        studentName: finalStudentName, 
+        studentId: studentData.uid, 
+        section: courseData.section, 
+        courseId, 
         answers: answersAsText, 
         variants: variantsMap, 
-        timeTaken: formattedTime, cheatingLog: isCheating ? cheatingHistory : null,
-        forcedStatus: isCheating ? `تم الطرد (${reason})` : "تم التسليم ✅", questionIds, deviceInfo, examCode: enteredCode || 'General' 
+        timeTaken: formattedTime, 
+        cheatingLog: isCheating ? cheatingHistory : null,
+        // 👇 التعديل هنا: بنبعت نوع التسليم
+        submissionType: isCheating ? 'cheating' : 'manual', 
+        forcedStatus: isCheating ? `تم الطرد (${reason})` : "تم التسليم ✅", 
+        questionIds, 
+        deviceInfo, 
+        examCode: enteredCode || 'General' 
     });
 
     if (result.success) {
@@ -398,8 +478,13 @@ export default function ExamPage() {
         localStorage.setItem(sessionKey, JSON.stringify({ finished: true }));
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
         if (isMountedRef.current) {
-            alert(`تم إنهاء الامتحان.\nالدرجة: ${result.score}/${result.total}`);
-            router.replace('/dashboard');
+            const msg = `تم إنهاء الامتحان.\nالدرجة: ${result.score}/${result.total}\nالوقت المستغرق: ${formattedTime}`;
+            if (result.score >= (result.total / 2)) {
+                alert(msg + "\n🎉 مبروك! يمكنك تحميل الشهادة من صفحة النتائج.");
+            } else {
+                alert(msg);
+            }
+            setTimeout(() => { router.replace('/dashboard'); }, 100);
         }
     } else {
         alert("فشل التسليم. حاول مرة أخرى."); isSubmittingRef.current = false; 
@@ -409,38 +494,56 @@ export default function ExamPage() {
 
   if (step === 'loading') return <div className="h-screen flex flex-col items-center justify-center bg-[#0B1120] text-white"><div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div></div>;
 
+  // --- Intro View ---
   if (step === 'intro') return (
     <div className="min-h-screen bg-[#0B1120] flex items-center justify-center p-4 dir-rtl" dir="rtl">
-        <div className="bg-[#131B2E] max-w-lg w-full rounded-3xl p-8 text-center border border-white/10 relative overflow-hidden">
-            <h1 className="text-3xl font-black text-white mb-2">{courseData.name}</h1>
+        <div className="bg-[#131B2E] max-w-2xl w-full rounded-3xl p-8 border border-white/10 relative overflow-hidden">
+            <h1 className="text-3xl font-black text-white mb-2 text-center">{courseData.name}</h1>
             
-            {/* Leaderboard Section */}
-            {topStudents.length > 0 && (
-                <div className="my-6 bg-white/5 p-4 rounded-2xl border border-white/10">
-                    <h3 className="text-yellow-400 font-bold mb-3 flex items-center justify-center gap-2">🏆 أبطال المادة (Top 3)</h3>
-                    <div className="space-y-2">
-                        {topStudents.map((st, idx) => (
-                            <div key={idx} className="flex justify-between items-center bg-black/20 p-2 rounded-lg px-4">
-                                <div className="flex items-center gap-2">
-                                    <span className={`text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full ${idx===0 ? 'bg-yellow-500 text-black' : idx===1 ? 'bg-gray-400 text-black' : 'bg-orange-700 text-white'}`}>
-                                        {idx + 1}
-                                    </span>
-                                    <span className="text-sm font-bold text-gray-200">{st.name.split(' ')[0]} ...</span>
-                                </div>
-                                <span className="text-blue-400 font-mono font-bold text-sm">{st.score} درجة</span>
-                            </div>
-                        ))}
-                    </div>
+            <div className="bg-red-900/10 border border-red-500/20 p-5 rounded-2xl mb-6 mt-4">
+                <div className="flex items-center gap-3 mb-3">
+                    <Icons.Warning />
+                    <h3 className="font-bold text-lg text-red-500">تعليمات هامة جداً قبل البدء</h3>
                 </div>
-            )}
+                <ul className="text-sm text-gray-300 space-y-2 list-disc list-inside">
+                    <li>🚫 <b>ممنوع الخروج من التبويب</b> أو تصغير المتصفح.</li>
+                    <li>📷 <b>ممنوع التقاط صور</b> للشاشة (Screenshot/PrintScreen).</li>
+                    <li>🖥️ <b>ممنوع تقسيم الشاشة</b> (Split Screen).</li>
+                    <li>⚡ أي محاولة غش سيتم تسجيلها، وبعد <b>3 مخالفات</b> سيتم طردك فوراً.</li>
+                    <li>⏱️ عداد الوقت يعمل تلقائياً ولن يتوقف إذا خرجت.</li>
+                </ul>
+            </div>
 
             {requiredCode && (
-                <div className="mb-6 bg-yellow-500/10 p-4 rounded-xl border border-yellow-500/20 mt-4">
-                    <label className="block text-yellow-500 font-bold text-sm mb-2">🔒 أدخل كود الامتحان</label>
+                <div className="mb-6 bg-yellow-500/10 p-4 rounded-xl border border-yellow-500/20">
+                    <label className="block text-yellow-500 font-bold text-sm mb-2 text-center">🔒 أدخل كود الامتحان</label>
                     <input type="text" className="w-full p-3 bg-black/40 border border-yellow-500/30 rounded-lg text-center text-white font-bold tracking-widest outline-none focus:border-yellow-500" placeholder="CODE" value={enteredCode} onChange={(e) => setEnteredCode(e.target.value)} />
                 </div>
             )}
-            <button onClick={handleStartExam} className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl mt-2 hover:bg-blue-500 transition shadow-lg shadow-blue-600/20">ابدأ الامتحان 🚀</button>
+            <button onClick={handleStartExam} className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl hover:bg-blue-500 transition shadow-lg shadow-blue-600/20 text-lg">أوافق على الشروط وأبدأ الامتحان 🚀</button>
+            {/* 👇 قسم لوحة الشرف يضاف هنا */}
+            <div className="mt-8 bg-black/20 rounded-2xl p-6 border border-white/5">
+                <h3 className="text-xl font-bold text-yellow-400 flex items-center justify-center gap-2 mb-4">
+                    🏆 لوحة الشرف (الأوائل)
+                </h3>
+                {topStudents.length > 0 ? (
+                    <div className="space-y-3">
+                        {topStudents.map((student, idx) => (
+                            <div key={idx} className="flex items-center justify-between bg-white/5 p-3 rounded-lg border border-white/10">
+                                <div className="flex items-center gap-3">
+                                    <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${idx===0 ? 'bg-yellow-500 text-black': 'bg-gray-700 text-white'}`}>
+                                        {idx+1}
+                                    </span>
+                                    <span className="text-white font-bold text-sm">{student.name}</span>
+                                </div>
+                                <span className="text-green-400 font-bold text-sm">{student.score} درجة</span>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <p className="text-gray-500 text-center text-sm">لا يوجد نتائج حتى الآن. كن أول الفائزين! 🥇</p>
+                )}
+            </div>
         </div>
     </div>
   );
@@ -448,10 +551,13 @@ export default function ExamPage() {
   const question = questions[currentQIndex];
   const progress = ((currentQIndex + 1) / questions.length) * 100;
   const answeredCount = Object.keys(answersIndices).length;
+  const diffStyle = question ? getDifficultyColor(question.difficulty || question.level || 'easy') : {};
 
+  // --- Quiz View ---
   return (
-    <div className="min-h-screen bg-[#0B1120] text-gray-100 font-sans select-none relative" dir="rtl">    
-      <div className="fixed inset-0 pointer-events-none z-[50] overflow-hidden opacity-[0.04] flex flex-wrap content-center justify-center gap-20 rotate-[-20deg]">
+    <div className="min-h-screen bg-[#0B1120] text-gray-100 font-sans select-none relative flex flex-col md:flex-row" dir="rtl">    
+      
+      <div className="fixed inset-0 pointer-events-none z-[50] overflow-hidden opacity-[0.03] flex flex-wrap content-center justify-center gap-20 rotate-[-20deg]">
           {Array(20).fill("").map((_, i) => (
               <div key={i} className="text-gray-100 font-black text-4xl whitespace-nowrap">{studentData.name} - {studentData.uid.slice(0,5)}</div>
           ))}
@@ -459,7 +565,7 @@ export default function ExamPage() {
 
       {warningModal.show && (
         <div className="fixed inset-0 z-[10000] bg-black/90 backdrop-blur-sm flex flex-col items-center justify-center p-4">
-            <div className="bg-[#131B2E] border-2 border-red-500 rounded-3xl p-8 max-w-md w-full text-center">
+            <div className="bg-[#131B2E] border-2 border-red-500 rounded-3xl p-8 max-w-md w-full text-center animate-pulse">
                 <div className="text-6xl mb-4">⚠️</div>
                 <h2 className="text-3xl font-black text-red-500 mb-2">تحذير مخالفة!</h2>
                 <p className="text-white text-lg font-bold mb-6"><span className="text-yellow-400">{warningModal.msg}</span></p>
@@ -467,7 +573,6 @@ export default function ExamPage() {
             </div>
         </div>
       )}
-
       {splitScreenWarning && (
          <div className="fixed inset-0 z-[10000] bg-red-900/95 backdrop-blur-md flex flex-col items-center justify-center text-white text-center p-4">
             <h2 className="text-4xl font-black mb-4">⚠️ تقسيم الشاشة ممنوع!</h2>
@@ -475,95 +580,118 @@ export default function ExamPage() {
          </div>
       )}
 
-      {/* Header */}
-      <div className="bg-[#131B2E] shadow-sm sticky top-0 z-40 border-b border-white/10 relative z-10">
-        <div className="max-w-5xl mx-auto px-4 h-20 flex items-center justify-between">
-            <div className="flex gap-4 items-center">
-                <span className="font-bold text-gray-300">
-                    {step === 'review' ? 'مراجعة نهائية 📝' : `سؤال ${currentQIndex + 1}/${questions.length}`}
-                </span>
-                {strikes > 0 && <span className="bg-red-500 text-white text-xs px-2 py-1 rounded font-bold">مخالفات: {strikes}/3</span>}
-            </div>
-            <div className={`font-mono font-bold text-xl px-5 py-2 rounded-xl border ${timeLeft < 300 ? 'bg-red-500/10 text-red-500 animate-pulse' : 'bg-blue-500/10 text-blue-400'}`}>
-                {Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, '0')}
-            </div>
-        </div>
-        <div className="h-1 bg-[#0B1120] w-full"><div className="h-full bg-blue-500" style={{ width: `${progress}%` }}></div></div>
-      </div>
+      <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="md:hidden fixed top-4 right-4 z-[60] bg-[#131B2E] p-2 rounded-lg border border-white/20">
+          <Icons.Menu />
+      </button>
 
-      {step === 'review' ? (
-          <div className="max-w-4xl mx-auto p-6 mt-8 relative z-10 animate-fade-in">
-              <div className="bg-[#131B2E] rounded-3xl p-8 text-center border border-white/5 shadow-2xl">
-                  <h2 className="text-3xl font-black text-white mb-2">مراجعة الإجابات</h2>
-                  <p className="text-gray-400 mb-8 font-bold">لقد قمت بحل <span className="text-blue-400">{answeredCount}</span> من أصل <span className="text-white">{questions.length}</span> سؤال</p>
-                  
-                  <div className="grid grid-cols-5 md:grid-cols-8 gap-3 mb-10">
-                      {questions.map((q, idx) => (
-                          <button 
-                            key={idx} 
-                            onClick={() => { setCurrentQIndex(idx); setStep('quiz'); }} 
-                            className={`p-4 rounded-xl font-black text-lg transition-transform hover:scale-105 ${answersIndices[q.id] !== undefined 
-                                ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' 
-                                : 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20'}`}
-                          >
-                            {idx + 1}
-                          </button>
-                      ))}
-                  </div>
-
-                  <div className="bg-white/5 p-6 rounded-2xl border border-white/5 mb-6">
-                      <h4 className="font-bold text-white mb-2">تعليمات التسليم:</h4>
-                      <p className="text-xs text-gray-400">بمجرد الضغط على زر التسليم، لا يمكن التراجع أو تعديل الإجابات. تأكد من مراجعة الأسئلة غير المحلولة (باللون الأصفر).</p>
-                  </div>
-
-                  <button onClick={() => handleSubmit("تسليم يدوي")} className="w-full bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold py-4 rounded-xl text-xl shadow-lg hover:shadow-green-500/20 transition-all transform hover:scale-[1.01]">
-                    تأكيد التسليم النهائي ✅
-                  </button>
+      <aside className={`fixed md:sticky top-0 right-0 h-screen w-64 bg-[#131B2E] border-l border-white/10 z-[55] transition-transform duration-300 transform ${isSidebarOpen ? 'translate-x-0' : 'translate-x-full md:translate-x-0'} flex flex-col`}>
+          <div className="p-6 border-b border-white/10">
+              <h2 className="font-bold text-white text-lg mb-1">خريطة الأسئلة</h2>
+              <p className="text-xs text-gray-400">الأسئلة المحلولة باللون الأخضر</p>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+              <div className="grid grid-cols-4 gap-2">
+                  {questions.map((_, idx) => (
+                      <button 
+                        key={idx} 
+                        onClick={() => { setCurrentQIndex(idx); setStep('quiz'); setIsSidebarOpen(false); }}
+                        className={`aspect-square rounded-lg font-bold text-sm transition-all ${
+                            idx === currentQIndex ? 'ring-2 ring-white bg-blue-600 text-white' : 
+                            answersIndices[questions[idx].id] !== undefined ? 'bg-green-600 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'
+                        }`}
+                      >
+                        {idx + 1}
+                      </button>
+                  ))}
               </div>
           </div>
-      ) : (
-          <div className="max-w-4xl mx-auto p-4 pb-32 relative z-10 animate-slide-up">
-             <div className="bg-[#131B2E] rounded-3xl shadow-xl border border-white/5 p-6 md:p-10 min-h-[400px]">
-                {question?.image && <img src={question.image} alt="Q" className="max-h-60 mx-auto mb-6 rounded-lg object-contain" />}
-                <div className="text-xl md:text-2xl font-medium text-white mb-10 leading-loose text-center dir-rtl"><Latex>{question?.question || ''}</Latex></div>
-                <div className="grid gap-4 mt-8">
-                    {question?.options.map((opt, idx) => {
-                        const isSelected = answersIndices[question.id] === idx;
-                        return (
-                            <button 
-                                key={idx} 
-                                onClick={() => handleAnswerSelect(question.id, idx)}
-                                className={`flex items-center p-5 rounded-2xl border-2 text-right transition-all group
-                                    ${isSelected 
-                                        ? 'border-blue-500 bg-blue-500/10 shadow-[0_0_15px_rgba(59,130,246,0.5)] scale-[1.01]' 
-                                        : 'border-white/5 bg-[#0B1120] hover:bg-white/5' 
-                                    }`}
-                            > 
-                                <span className={`w-10 h-10 flex items-center justify-center rounded-full font-bold ml-4 border-2 shrink-0
-                                    ${isSelected ? 'bg-blue-500 text-white border-blue-500' : 'text-gray-500 border-gray-600 group-hover:border-gray-400'}`}>
-                                    {String.fromCharCode(65 + idx)}
-                                </span>
-                                <span className="text-lg font-medium text-gray-200 dir-rtl"><Latex>{opt.text}</Latex></span>
-                            </button>
-                        );
-                    })}
-                </div>
-             </div>
+          <div className="p-4 border-t border-white/10">
+              <button onClick={() => setStep('review')} className="w-full bg-white/10 hover:bg-white/20 text-white font-bold py-3 rounded-xl transition">
+                  مراجعة وتسليم 🏁
+              </button>
           </div>
-      )}
+      </aside>
 
-      {step === 'quiz' && (
-        <div className="fixed bottom-0 left-0 right-0 bg-[#131B2E]/90 backdrop-blur-md border-t border-white/10 p-4 z-30">
-            <div className="max-w-5xl mx-auto flex justify-between items-center">
+      <main className="flex-1 flex flex-col h-screen overflow-hidden">
+          
+          <header className="h-16 bg-[#131B2E] border-b border-white/10 flex items-center justify-between px-6 md:px-10 z-40">
+              <div className="hidden md:flex items-center gap-4">
+                  <h1 className="font-bold text-white">{courseData.name}</h1>
+                  {strikes > 0 && <span className="bg-red-500 text-white text-xs px-2 py-1 rounded font-bold">مخالفات: {strikes}/3</span>}
+              </div>
+              <div className="flex items-center gap-4 ml-auto md:ml-0">
+                  {isSaving && <div className="flex items-center gap-1 text-xs text-green-400 font-bold animate-pulse"><Icons.Cloud /> تم الحفظ</div>}
+                  <div className={`flex items-center gap-2 px-4 py-2 rounded-xl font-mono font-bold text-lg border ${timeLeft < 300 ? 'bg-red-500/20 text-red-500 border-red-500/50 animate-pulse' : 'bg-blue-500/10 text-blue-400 border-blue-500/30'}`}>
+                      <Icons.Clock />
+                      {Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, '0')}
+                  </div>
+              </div>
+          </header>
+
+          <div className="h-1 bg-[#0B1120] w-full"><div className="h-full bg-blue-600 transition-all duration-300" style={{ width: `${progress}%` }}></div></div>
+
+          <div className="flex-1 overflow-y-auto p-4 md:p-10 pb-32">
+              {step === 'review' ? (
+                  <div className="max-w-3xl mx-auto bg-[#131B2E] rounded-3xl p-8 border border-white/10 text-center animate-fade-in">
+                      <h2 className="text-3xl font-black text-white mb-2">مراجعة نهائية</h2>
+                      <p className="text-gray-400 mb-8">أجبت على <span className="text-blue-400 font-bold">{answeredCount}</span> من <span className="text-white font-bold">{questions.length}</span> سؤال</p>
+                      <button onClick={() => handleSubmit("تسليم يدوي")} className="w-full bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold py-4 rounded-xl text-xl shadow-lg hover:scale-[1.01] transition-transform">تأكيد وإنهاء الامتحان ✅</button>
+                      <button onClick={() => setStep('quiz')} className="mt-4 text-gray-400 hover:text-white underline text-sm">العودة للأسئلة</button>
+                  </div>
+              ) : (
+                  <div className="max-w-4xl mx-auto animate-slide-up">
+                      <div className="bg-[#131B2E] rounded-3xl shadow-xl border border-white/5 p-6 md:p-10 relative">
+                          {question && (
+                            <div className={`absolute top-4 left-4 px-3 py-1 rounded-full border text-xs font-bold flex items-center gap-2 ${diffStyle.bg} ${diffStyle.text} ${diffStyle.border}`}>
+                                {diffStyle.label}
+                            </div>
+                          )}
+
+                          {question?.image && <img src={question.image} alt="Q" className="max-h-60 mx-auto mb-6 rounded-lg object-contain bg-white/5" />}
+                          
+                          <div className="text-xl md:text-2xl font-bold text-white mb-8 leading-loose text-center dir-rtl">
+                              <MathText text={question?.question || ''} />
+                          </div>
+
+                          <div className="grid gap-4">
+                            {question?.options.map((opt, idx) => {
+                                const isSelected = answersIndices[question.id] === idx;
+                                return (
+                                    <button 
+                                        key={idx} 
+                                        onClick={() => handleAnswerSelect(question.id, idx)}
+                                        className={`flex items-center p-5 rounded-2xl border-2 text-right transition-all group relative overflow-hidden
+                                            ${isSelected 
+                                                ? 'border-blue-500 bg-blue-500/10 shadow-[0_0_20px_rgba(59,130,246,0.3)]' 
+                                                : 'border-white/5 bg-[#0B1120] hover:bg-white/5 hover:border-white/20' 
+                                            }`}
+                                    > 
+                                        <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center mr-4 ml-4 transition-colors ${isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-600 group-hover:border-gray-400'}`}>
+                                            {isSelected && <div className="w-3 h-3 bg-white rounded-full"></div>}
+                                        </div>
+                                        <span className="text-lg font-medium text-gray-200 dir-rtl"> <MathText text={opt.text} /></span>
+                                    </button>
+                                );
+                            })}
+                          </div>
+                      </div>
+                  </div>
+              )}
+          </div>
+
+          {step === 'quiz' && (
+            <div className="h-20 bg-[#131B2E] border-t border-white/10 flex items-center justify-between px-6 md:px-10 shrink-0 z-40">
                 <button onClick={() => setCurrentQIndex(p => Math.max(0, p - 1))} disabled={currentQIndex === 0} className="px-6 py-3 rounded-xl font-bold text-gray-400 hover:bg-white/5 disabled:opacity-30 transition">السابق</button>
-                
-                {currentQIndex === questions.length - 1 ? 
-                    <button onClick={() => setStep('review')} className="px-8 py-3 rounded-xl font-bold bg-white text-black shadow-lg hover:bg-gray-200 transition">مراجعة وتسليم 📝</button> 
-                    : <button onClick={() => setCurrentQIndex(p => p + 1)} className="px-8 py-3 rounded-xl font-bold bg-blue-600 text-white shadow-lg hover:bg-blue-500 transition">التالي ⬅️</button>
-                }
+                <div className="text-sm font-bold text-gray-500 hidden md:block">سؤال {currentQIndex + 1} من {questions.length}</div>
+                <button onClick={() => {
+                    if (currentQIndex === questions.length - 1) setStep('review');
+                    else setCurrentQIndex(p => p + 1);
+                }} className={`px-8 py-3 rounded-xl font-bold text-white shadow-lg transition ${currentQIndex === questions.length - 1 ? 'bg-green-600 hover:bg-green-500' : 'bg-blue-600 hover:bg-blue-500'}`}>
+                    {currentQIndex === questions.length - 1 ? 'مراجعة 📝' : 'التالي ⬅️'}
+                </button>
             </div>
-        </div>
-      )}
+          )}
+      </main>
     </div>
   );
 }

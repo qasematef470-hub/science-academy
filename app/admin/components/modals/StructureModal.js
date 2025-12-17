@@ -53,18 +53,18 @@ export default function StructureModal({ onClose, isDarkMode }) {
 
   return (
     <div className={`fixed inset-0 z-[100] flex items-center justify-center p-4 ${theme.overlay} overflow-y-auto`}>
-        <div className={`w-full max-w-4xl rounded-3xl shadow-2xl flex flex-col max-h-[90vh] ${theme.modalBg}`}>
+        <div className={`w-full max-w-4xl m-4 rounded-3xl shadow-2xl flex flex-col max-h-[90vh] ${theme.modalBg}`}>
             
             {/* Header */}
-            <div className={`p-6 border-b flex justify-between items-center ${theme.borderColor}`}>
-                <h3 className={`font-bold text-2xl flex items-center gap-2 ${theme.textMain}`}>
+            <div className={`p-4 md:p-6 border-b flex justify-between items-center ${theme.borderColor}`}>
+                <h3 className={`font-bold text-lg md:text-2xl flex items-center gap-2 ${theme.textMain}`}>
                     ⚙️ إدارة هيكل الجامعات
                 </h3>
                 <button onClick={onClose} className="text-gray-400 hover:text-red-500 text-3xl font-bold">✕</button>
             </div>
 
             {/* Body */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar">
                 {structure.map((uni, uIdx) => (
                     <div key={uIdx} className={`p-6 rounded-3xl border-2 ${isDarkMode ? 'border-indigo-900/50' : 'border-indigo-100'} ${theme.cardBg}`}>
                         

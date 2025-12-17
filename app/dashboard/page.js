@@ -305,9 +305,9 @@ export default function StudentDashboard() {
       {/* 🕹️ Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-8 relative z-10 grid grid-cols-1 lg:grid-cols-4 gap-8">
         
-        {/* Sidebar */}
+        {/* Sidebar / Mobile Tabs */}
         <div className="lg:col-span-1 space-y-4">
-            <div className={`backdrop-blur-sm border p-2 rounded-3xl flex lg:flex-col gap-2 sticky top-24 transition-colors ${theme.card}`}>
+            <div className={`backdrop-blur-sm border p-2 rounded-3xl flex lg:flex-col gap-2 sticky top-24 transition-colors overflow-x-auto no-scrollbar ${theme.card}`}>
                 {[
                     { id: 'home', icon: '🚀', label: 'الرئيسية' },
                     { id: 'courses', icon: '📚', label: 'موادي' },
@@ -316,14 +316,14 @@ export default function StudentDashboard() {
                     <button 
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id)}
-                        className={`flex-1 p-4 rounded-2xl flex items-center gap-3 transition-all ${activeTab === tab.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 scale-[1.02]' : `${theme.hover} ${theme.textMuted}`}`}
+                        className={`flex-1 min-w-[100px] lg:min-w-0 p-4 rounded-2xl flex items-center justify-center lg:justify-start gap-3 transition-all whitespace-nowrap ${activeTab === tab.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 scale-[1.02]' : `${theme.hover} ${theme.textMuted}`}`}
                     >
                         <span>{tab.icon}</span> <span className="font-bold">{tab.label}</span>
                     </button>
                 ))}
-                 <div className="lg:hidden flex gap-2">
-                    <button onClick={() => setShowPasswordModal(true)} className={`flex-1 p-3 rounded-xl ${theme.hover} ${theme.textMuted} text-xs font-bold border ${theme.card.split(' ')[1]}`}>🔒 الباسورد</button>
-                 </div>
+                <div className="lg:hidden flex gap-2 min-w-[100px]">
+                    <button onClick={() => setShowPasswordModal(true)} className={`flex-1 p-3 rounded-xl ${theme.hover} ${theme.textMuted} text-xs font-bold border whitespace-nowrap ${theme.card.split(' ')[1]}`}>🔒 الباسورد</button>
+                </div>
             </div>
         </div>
 
@@ -709,64 +709,60 @@ export default function StudentDashboard() {
               onClose={() => setCertificateData(null)}
           />
       )}
-      {/* 💎 مودال التفاصيل الجديد */}
+      {/* 💎 مودال التفاصيل المحسن للموبايل */}
       {viewCourseModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-fade-in">
-              <div className="bg-[#0B1120] w-full max-w-5xl rounded-[2.5rem] overflow-hidden border border-white/10 shadow-2xl relative flex flex-col md:flex-row max-h-[90vh]">
-                  <button onClick={() => setViewCourseModal(null)} className="absolute top-4 left-4 z-50 w-10 h-10 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center backdrop-blur-md transition">✕</button>
-                  
-                  {/* التفاصيل يمين */}
-                  <div className="flex-1 p-8 md:p-10 flex flex-col overflow-y-auto custom-scrollbar relative z-20 bg-gradient-to-br from-[#0B1120] to-[#1a233a]">
-                      <div className="flex flex-wrap gap-2 mb-4">
-                          <span className="bg-blue-600 text-white text-xs font-black px-3 py-1 rounded-full">{viewCourseModal.college || "عام"}</span>
-                          <span className="bg-green-500 text-black text-xs font-black px-3 py-1 rounded-full">{viewCourseModal.price > 0 ? `${viewCourseModal.price} ج.م` : 'مجاني'}</span>
-                      </div>
-                      <h2 className="text-3xl md:text-4xl font-black text-white mb-6 leading-tight">{viewCourseModal.name}</h2>
-                      
-                      <div className="bg-white/5 border border-white/5 rounded-2xl p-4 flex items-center gap-4 mb-6">
-                        <div className="w-12 h-12 rounded-full bg-blue-600 flex items-center justify-center text-xl shadow-lg shadow-blue-600/20 overflow-hidden">
-                            {viewCourseModal.instructorImage ? (
-                                <img src={viewCourseModal.instructorImage} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                                <span>👨‍🏫</span>
+            <div className="fixed inset-0 z-[100] flex items-end md:items-center justify-center p-0 md:p-4 bg-black/90 backdrop-blur-md animate-fade-in">
+                {/* جعلناه ياخد الشاشة كاملة في الموبايل ويبقى كارت في الكمبيوتر */}
+                <div className="bg-[#0B1120] w-full h-[90vh] md:h-auto md:max-h-[90vh] max-w-5xl rounded-t-[2.5rem] md:rounded-[2.5rem] overflow-hidden border border-white/10 shadow-2xl relative flex flex-col md:flex-row">
+            
+                    {/* زرار الإغلاق المحسن */}
+                    <button onClick={() => setViewCourseModal(null)} className="absolute top-4 left-4 z-50 w-10 h-10 bg-black/20 hover:bg-black/40 text-white rounded-full flex items-center justify-center backdrop-blur-md transition border border-white/10">✕</button>
+            
+                    {/* التفاصيل يمين */}
+                    <div className="flex-1 p-6 md:p-10 flex flex-col overflow-y-auto custom-scrollbar relative z-20 bg-gradient-to-br from-[#0B1120] to-[#1a233a]">
+                        <div className="flex flex-wrap gap-2 mb-4 mt-8 md:mt-0"> {/* margin-top عشان زرار الإغلاق في الموبايل */}
+                            <span className="bg-blue-600 text-white text-xs font-black px-3 py-1 rounded-full">{viewCourseModal.college || "عام"}</span>
+                            <span className="bg-green-500 text-black text-xs font-black px-3 py-1 rounded-full">{viewCourseModal.price > 0 ? `${viewCourseModal.price} ج.م` : 'مجاني'}</span>
+                        </div>
+                        <h2 className="text-2xl md:text-4xl font-black text-white mb-6 leading-tight">{viewCourseModal.name}</h2>
+                
+                        {/* ... باقي محتوى المودال زي ما هو ... */}
+                        <div className="bg-white/5 border border-white/5 rounded-2xl p-4 flex items-center gap-4 mb-6">
+                            {/* ... نفس كود المحاضر ... */}
+                            <div className="w-12 h-12 rounded-full bg-blue-600 flex items-center justify-center text-xl shadow-lg shadow-blue-600/20 overflow-hidden">
+                                {viewCourseModal.instructorImage ? <img src={viewCourseModal.instructorImage} alt="" className="w-full h-full object-cover" /> : <span>👨‍🏫</span>}
+                            </div>
+                            <div>
+                                <p className="text-xs text-slate-400 font-bold mb-0.5">محاضر المادة</p>
+                                <p className="text-white font-bold text-lg">{viewCourseModal.instructorName || "Science Academy"}</p>
+                            </div>
+                        </div>
+
+                        <div className="mb-8 flex-1">
+                            <h3 className="text-white font-bold mb-2 flex items-center gap-2"><span>📝</span> عن الكورس:</h3>
+                            <p className="text-slate-400 text-sm leading-relaxed whitespace-pre-wrap">{viewCourseModal.details || "كورس شامل..."}</p>
+                        </div>
+
+                        <div className="space-y-3 mt-auto pb-6 md:pb-0"> {/* padding-bottom للموبايل */}
+                            {viewCourseModal.contactPhone && (
+                                <a href={`https://wa.me/+2${viewCourseModal.contactPhone}`} target="_blank" rel="noreferrer" className="w-full py-4 bg-green-600 hover:bg-green-500 text-white rounded-2xl font-black text-lg shadow-lg flex items-center justify-center gap-2 transition-transform active:scale-95">
+                                    <span>💬</span> تواصل واتساب
+                                </a>
                             )}
+                            <button onClick={() => { setViewCourseModal(null); handleInitiateSubscribe(viewCourseModal); }} className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black text-lg shadow-lg flex items-center justify-center gap-2 transition-transform active:scale-95">
+                                <span>🚀</span> اشترك الآن
+                            </button>
                         </div>
-                        <div>
-                            <p className="text-xs text-slate-400 font-bold mb-0.5">محاضر المادة</p>
-                            <p className="text-white font-bold text-lg">
-                                {viewCourseModal.instructorName || "Science Academy"}
-                            </p>
-                        </div>
-                  </div>
-                      <div className="mb-8 flex-1">
-                          <h3 className="text-white font-bold mb-2 flex items-center gap-2"><span>📝</span> عن الكورس:</h3>
-                          <p className="text-slate-400 text-sm leading-relaxed whitespace-pre-wrap">{viewCourseModal.details || "كورس شامل يغطي جميع جوانب المادة بأحدث طرق التدريس، مع مراجعات دورية وامتحانات مستمرة لضمان التفوق."}</p>
-                      </div>
+                    </div>
 
-                      <div className="space-y-3 mt-auto">
-                          {viewCourseModal.contactPhone && (
-                              <a href={`https://wa.me/+2${viewCourseModal.contactPhone}`} target="_blank" rel="noreferrer" className="w-full py-4 bg-green-600 hover:bg-green-500 text-white rounded-2xl font-black text-lg shadow-lg flex items-center justify-center gap-2 transition-transform active:scale-95">
-                                  <span>💬</span> تواصل واتساب مع المحاضر
-                              </a>
-                          )}
-                          <button onClick={() => { setViewCourseModal(null); handleInitiateSubscribe(viewCourseModal); }} className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black text-lg shadow-lg flex items-center justify-center gap-2 transition-transform active:scale-95">
-                              <span>🚀</span> اشترك الآن
-                          </button>
-                      </div>
-                  </div>
-
-                  {/* الصورة شمال */}
-                  <div className="hidden md:block w-2/5 relative">
-                      <div className="absolute inset-0 bg-blue-900/20 mix-blend-overlay z-10"></div>
-                      {viewCourseModal.image ? (
-                          <img src={viewCourseModal.image} alt="" className="absolute inset-0 w-full h-full object-cover" />
-                      ) : (
-                          <div className="absolute inset-0 bg-gradient-to-br from-blue-900 to-slate-900 flex items-center justify-center"><span className="text-9xl opacity-20">📚</span></div>
-                      )}
-                  </div>
-              </div>
-          </div>
-      )}
+                    {/* الصورة شمال (تختفي في الموبايل) */}
+                    <div className="hidden md:block w-2/5 relative">
+                        <div className="absolute inset-0 bg-blue-900/20 mix-blend-overlay z-10"></div>
+                        {viewCourseModal.image ? <img src={viewCourseModal.image} alt="" className="absolute inset-0 w-full h-full object-cover" /> : <div className="absolute inset-0 bg-gradient-to-br from-blue-900 to-slate-900 flex items-center justify-center"><span className="text-9xl opacity-20">📚</span></div>}
+                    </div>
+                </div>
+            </div>
+        )}
     </div>
   );
 }

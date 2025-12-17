@@ -119,7 +119,7 @@ export default function StudentProfileModal({ student, onClose, onRefresh, selec
             <div className={`w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden relative ${theme.card}`}>
                 
                 <div className="h-32 bg-gradient-to-r from-indigo-600 to-purple-600 relative">
-                    <button onClick={onClose} className="absolute top-4 right-4 w-8 h-8 bg-black/20 hover:bg-black/40 text-white rounded-full flex items-center justify-center transition">✕</button>
+                    <button onClick={onClose} className="absolute top-4 right-4 w-10 h-10 bg-black/20 hover:bg-black/40 text-white rounded-full flex items-center justify-center transition z-10">✕</button>
                 </div>
 
                 <div className="px-8 pb-8 -mt-12 relative">

@@ -200,16 +200,29 @@ export default function AdminDashboard() {
             <FloatingShape type="atom" delay={5} duration={30} top="30%" right="10%" isDarkMode={isDarkMode} />
         </div>
 
-        {/* Sidebar */}
-        <Sidebar 
-            activeTab={activeTab} 
-            setActiveTab={setActiveTab} 
-            isSidebarOpen={isSidebarOpen} 
-            adminData={adminData} 
-            pendingCount={pendingStudents.length}
-        />
+        {/* Sidebar - تم تعديله ليكون Overlay في الموبايل */}
+        <div className={`fixed inset-y-0 right-0 z-50 transform transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : 'translate-x-full md:translate-x-0 md:w-20'} md:translate-x-0`}>
+            <Sidebar 
+                activeTab={activeTab} 
+                setActiveTab={setActiveTab} 
+                isSidebarOpen={isSidebarOpen} 
+                adminData={adminData} 
+                pendingCount={pendingStudents.length}
+                // 🔥 إضافة: نقفل القائمة لما نختار تاب في الموبايل
+                onCloseMobile={() => window.innerWidth < 768 && setIsSidebarOpen(false)}
+            />
+        </div>
 
-        <main className={`flex-1 min-h-screen flex flex-col transition-all duration-300 ${isSidebarOpen ? 'mr-64' : 'mr-20'}`}>
+        {/* Backdrop for Mobile - خلفية سوداء لما القائمة تفتح */}
+        {isSidebarOpen && (
+            <div 
+                onClick={() => setIsSidebarOpen(false)}
+                className="fixed inset-0 bg-black/50 z-40 md:hidden backdrop-blur-sm transition-opacity"
+            ></div>
+        )}
+
+        {/* Main Content */}
+        <main className={`flex-1 min-h-screen flex flex-col transition-all duration-300 ${isSidebarOpen ? 'md:mr-64' : 'md:mr-20'}`}>
             {/* Header */}
             <Header 
                 isSidebarOpen={isSidebarOpen} 
@@ -221,13 +234,10 @@ export default function AdminDashboard() {
                 onOpenPassModal={() => setShowPassModal(true)}
             />
 
-            <div className="p-8 space-y-8 animate-fade-in relative z-10">
-                
-                {/* Stats Section (Always Visible) */}
+            <div className="p-4 md:p-8 space-y-6 md:space-y-8 animate-fade-in relative z-10 overflow-x-hidden">
+                {/* ... باقي التابات زي ما هي ... */}
                 <StatsCards stats={stats} isDarkMode={isDarkMode} />
-
-                {/* --- Dynamic Content Area --- */}
-                
+              
                 {activeTab === 'students' && (
                     <StudentsTab 
                         allStudents={allStudents} 
@@ -238,69 +248,30 @@ export default function AdminDashboard() {
                         isDarkMode={isDarkMode}
                     />
                 )}
-
                 {activeTab === 'courses' && (
                     <>
-                        {/* زرار إدارة الهيكلة حطيته هنا فوق الكورسات */}
                         <div className="flex justify-end mb-4">
-                            <button onClick={() => setShowStructureModal(true)} className="bg-slate-800 text-white px-4 py-2 rounded-xl font-bold hover:bg-slate-700 transition">
-                                ⚙️ إدارة هيكل الجامعة
+                            <button onClick={() => setShowStructureModal(true)} className="bg-slate-800 text-white px-4 py-2 rounded-xl font-bold hover:bg-slate-700 transition text-sm md:text-base">
+                                ⚙️ إدارة الهيكل
                             </button>
                         </div>
-                        <CoursesTab 
-                            courses={myCourses} 
-                            onRefresh={() => loadInitialData(auth.currentUser.uid)} 
-                            isDarkMode={isDarkMode} 
-                            adminData={adminData}
-                        />
+                        <CoursesTab courses={myCourses} onRefresh={() => loadInitialData(auth.currentUser.uid)} isDarkMode={isDarkMode} adminData={adminData} />
                     </>
                 )}
-
-                {activeTab === 'questions' && (
-                    <QuestionsTab 
-                        myCourses={myCourses}
-                        questionsList={questionsList}
-                        selectedCourseForQ={selectedCourseForQ}
-                        setSelectedCourseForQ={setSelectedCourseForQ}
-                        fetchQuestions={fetchQuestions}
-                        isDarkMode={isDarkMode}
-                    />
-                )}
-
+                {/* ... (كمل باقي التابات بنفس طريقتك القديمة) ... */}
+                {activeTab === 'questions' && <QuestionsTab myCourses={myCourses} questionsList={questionsList} selectedCourseForQ={selectedCourseForQ} setSelectedCourseForQ={setSelectedCourseForQ} fetchQuestions={fetchQuestions} isDarkMode={isDarkMode} />}
                 {activeTab === 'materials' && <MaterialsTab myCourses={myCourses} isDarkMode={isDarkMode} />}
-                
-                {activeTab === 'announcements' && (
-                    <AnnouncementsTab 
-                        announcements={announcements} 
-                        myCourses={myCourses}  // 👈👈 (myCourses) التعديل هنا: غيرناها من courses لـ 
-                        onRefresh={async () => { const r = await getAnnouncements(); if(r.success) setAnnouncements(r.data); }} 
-                        isDarkMode={isDarkMode} 
-                    />
-                )}
-
+                {activeTab === 'announcements' && <AnnouncementsTab announcements={announcements} myCourses={myCourses} onRefresh={async () => { const r = await getAnnouncements(); if(r.success) setAnnouncements(r.data); }} isDarkMode={isDarkMode} />}
                 {activeTab === 'results' && <ResultsTab myCourses={myCourses} isDarkMode={isDarkMode} />}
-                
                 {activeTab === 'leaderboard' && <LeaderboardTab myCourses={myCourses} isDarkMode={isDarkMode} />}
-                
                 {activeTab === 'settings' && <SettingsTab myCourses={myCourses} isDarkMode={isDarkMode} />}
-
-                {activeTab === 'admin-tools' && (
-                    <AdminTools 
-                        myCourses={myCourses} 
-                        onRefresh={(cId) => fetchQuestions(cId)} 
-                        isDarkMode={isDarkMode} 
-                    />
-                )}
+                {activeTab === 'admin-tools' && <AdminTools myCourses={myCourses} onRefresh={(cId) => fetchQuestions(cId)} isDarkMode={isDarkMode} />}
             </div>
         </main>
 
         {/* Global Modals */}
-        
-        
         {showStructureModal && <StructureModal onClose={() => setShowStructureModal(false)} isDarkMode={isDarkMode} />}
-        
         {showPassModal && <PasswordModal onClose={() => setShowPassModal(false)} isDarkMode={isDarkMode} />}
-    
     </div>
   );
 }

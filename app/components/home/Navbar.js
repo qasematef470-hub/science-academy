@@ -104,13 +104,17 @@ const Navbar = ({ isDarkMode, toggleTheme, theme }) => {
                     <div className="w-full h-px bg-slate-500/20 my-2"></div>
                     
                     {user ? (
-                        <Link href="/dashboard" className="w-full text-center py-3 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-500/20">
-                            لوحة التحكم ({userData?.name})
+                        <Link 
+                            href={userData?.role === 'admin' ? '/admin' : '/dashboard'} 
+                            onClick={() => setIsMobileMenuOpen(false)} // نقفل القائمة لما يدوس
+                            className="w-full text-center py-3 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-500/20"
+                        >
+                            {userData?.role === 'admin' ? 'لوحة الأدمن' : `لوحة التحكم (${userData?.name?.split(' ')[0]})`}
                         </Link>
                     ) : (
                         <>
-                            <Link href="/login" className="w-full text-center py-3 rounded-xl border border-blue-500/30 text-blue-500 font-bold">تسجيل الدخول</Link>
-                            <Link href="/signup" className="w-full text-center py-3 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-500/20">حساب جديد</Link>
+                            <Link href="/login" onClick={() => setIsMobileMenuOpen(false)} className="w-full text-center py-3 rounded-xl border border-blue-500/30 text-blue-500 font-bold">تسجيل الدخول</Link>
+                            <Link href="/signup" onClick={() => setIsMobileMenuOpen(false)} className="w-full text-center py-3 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-500/20">حساب جديد</Link>
                         </>
                     )}
                 </motion.div>

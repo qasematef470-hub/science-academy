@@ -122,7 +122,7 @@ function LoginContent() {
       : "bg-white border border-gray-300 text-gray-900 focus:bg-gray-50";
 
   return (
-    <div className={`min-h-screen w-full flex dir-rtl font-sans overflow-hidden transition-colors duration-300 ${isDark ? 'bg-[#050505] text-white' : 'bg-gray-50 text-gray-900'}`}>
+    <div className={`min-h-[100dvh] w-full flex dir-rtl font-sans overflow-hidden transition-colors duration-300 ${isDark ? 'bg-[#050505] text-white' : 'bg-gray-50 text-gray-900'}`}>
       
       {/* 🖼️ Right Side: Visual Image */}
       <div className={`hidden lg:flex w-1/2 relative items-center justify-center overflow-hidden ${isDark ? 'bg-[#111]' : 'bg-gray-200'}`}>

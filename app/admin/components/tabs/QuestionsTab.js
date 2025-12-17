@@ -204,7 +204,7 @@ export default function QuestionsTab({
         </div>
 
         {/* 🟢 Form Section */}
-        <div className={`p-6 md:p-8 rounded-3xl border shadow-lg ${theme.card}`}>
+        <div className={`p-4 md:p-8 rounded-3xl border shadow-lg ${theme.card}`}>
             <h3 className={`font-bold text-xl mb-6 flex items-center gap-2 ${theme.textMain}`}>
                 <span className="text-2xl">{editMode ? '✏️' : '✨'}</span> {editMode ? 'تعديل السؤال' : 'إضافة سؤال جديد'}
             </h3>
@@ -242,23 +242,24 @@ export default function QuestionsTab({
                 </div>
 
                 {/* 4. Tools */}
-                <div className="flex flex-col md:flex-row gap-4 items-stretch">
-                    <div className="flex-1 relative">
-                        <span className="absolute top-3.5 left-3 opacity-50">🏷️</span>
-                        <input type="text" placeholder="اسم المحاضرة" className={`w-full h-full p-3 pl-10 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 transition font-bold ${theme.input} ${!qLecture ? 'border-red-300' : ''}`} value={qLecture} onChange={e => setQLecture(e.target.value)} required />
+                {/* 🔥🔥 التعديل: flex-col للموبايل و md:flex-row للشاشات الأكبر */}
+                    <div className="flex flex-col md:flex-row gap-4 items-stretch">
+                        <div className="flex-1 relative">
+                            <span className="absolute top-3.5 left-3 opacity-50">🏷️</span>
+                            <input type="text" placeholder="اسم المحاضرة" className={`w-full h-full p-3 pl-10 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 transition font-bold ${theme.input} ${!qLecture ? 'border-red-300' : ''}`} value={qLecture} onChange={e => setQLecture(e.target.value)} required />
+                        </div>
+                        <div className="flex bg-gray-100 dark:bg-slate-800 p-1 rounded-xl min-w-[200px]">
+                            {['easy', 'medium', 'hard'].map(lvl => (
+                                <button key={lvl} type="button" onClick={() => setQDifficulty(lvl)} className={`flex-1 py-3 text-xs font-bold rounded-lg transition-all ${qDifficulty === lvl ? (lvl === 'easy' ? 'bg-green-500 text-white' : lvl === 'medium' ? 'bg-yellow-500 text-white' : 'bg-red-500 text-white') : 'text-gray-500'}`}>
+                                    {lvl === 'easy' ? 'سهل' : lvl === 'medium' ? 'متوسط' : 'صعب'}
+                                </button>
+                            ))}
+                        </div>
+                        <button type="submit" disabled={uploadingImage || isSaving} className={`px-8 py-3 rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-transform min-w-[150px] ${theme.accentGradient} disabled:opacity-50`}>
+                            {isSaving ? '⏳...' : editMode ? '💾 حفظ' : '➕ إضافة'}
+                        </button>
+                        {editMode && <button type="button" onClick={() => { setEditMode(null); setQuestionText(""); setQImage(""); }} className="px-4 text-xs text-red-500 underline whitespace-nowrap self-center">إلغاء</button>}
                     </div>
-                    <div className="flex bg-gray-100 dark:bg-slate-800 p-1 rounded-xl min-w-[200px]">
-                        {['easy', 'medium', 'hard'].map(lvl => (
-                            <button key={lvl} type="button" onClick={() => setQDifficulty(lvl)} className={`flex-1 py-3 text-xs font-bold rounded-lg transition-all ${qDifficulty === lvl ? (lvl === 'easy' ? 'bg-green-500 text-white' : lvl === 'medium' ? 'bg-yellow-500 text-white' : 'bg-red-500 text-white') : 'text-gray-500'}`}>
-                                {lvl === 'easy' ? 'سهل' : lvl === 'medium' ? 'متوسط' : 'صعب'}
-                            </button>
-                        ))}
-                    </div>
-                    <button type="submit" disabled={uploadingImage || isSaving} className={`px-8 py-3 rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-transform min-w-[150px] ${theme.accentGradient} disabled:opacity-50`}>
-                        {isSaving ? '⏳...' : editMode ? '💾 حفظ' : '➕ إضافة'}
-                    </button>
-                    {editMode && <button type="button" onClick={() => { setEditMode(null); setQuestionText(""); setQImage(""); }} className="px-4 text-xs text-red-500 underline whitespace-nowrap">إلغاء</button>}
-                </div>
 
                 {/* 5. Preview Section (Now using the Component) */}
                 {(questionText || qImage) && (

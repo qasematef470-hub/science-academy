@@ -18,7 +18,7 @@ const Icons = {
     Bolt: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>,
 };
 
-export default function Sidebar({ activeTab, setActiveTab, isSidebarOpen, adminData, pendingCount = 0 }) {
+export default function Sidebar({ activeTab, setActiveTab, isSidebarOpen, adminData, pendingCount = 0, onCloseMobile }) {
   const isDarkMode = typeof window !== 'undefined' ? localStorage.getItem('theme') === 'dark' : true;
   const theme = {
     sidebar: isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-gray-200',
@@ -42,7 +42,7 @@ export default function Sidebar({ activeTab, setActiveTab, isSidebarOpen, adminD
   ];
 
   return (
-    <aside className={`fixed top-0 right-0 h-full z-40 transition-all duration-300 flex flex-col shadow-xl border-l ${isSidebarOpen ? 'w-64' : 'w-20'} ${theme.sidebar}`}>
+    <aside className={`h-full w-full md:w-auto transition-all duration-300 flex flex-col shadow-xl border-l ${isSidebarOpen ? 'md:w-64' : 'md:w-20'} ${theme.sidebar}`}>
         <div className={`h-16 flex items-center border-b border-gray-700/10 transition-all ${isSidebarOpen ? 'justify-between px-4' : 'justify-center'}`}>
             {isSidebarOpen ? (
                 <div className="flex items-center gap-2 font-bold text-xl animate-fade-in">
@@ -66,7 +66,10 @@ export default function Sidebar({ activeTab, setActiveTab, isSidebarOpen, adminD
             {navItems.map((item) => (
                 <button
                     key={item.id}
-                    onClick={() => setActiveTab(item.id)}
+                    onClick={() => {
+                        setActiveTab(item.id);
+                        if(onCloseMobile) onCloseMobile(); // 🔥 نقفل القائمة في الموبايل
+                    }}
                     className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all duration-200 
                     ${activeTab === item.id 
                         ? `${theme.accent} shadow-md` 

@@ -216,7 +216,7 @@ export default function ResultsTab({ myCourses, isDarkMode }) {
                 </div>
                 
                 <div className={`overflow-x-auto rounded-2xl border ${theme.card}`}>
-                    <table className="w-full text-right">
+                    <table className="w-full text-right min-w-[800px]">
                         <thead className="bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">
                             <tr>
                                 {['الطالب', 'التوقيت', 'الدرجة', 'الحالة', 'ورقة الإجابة', 'حذف'].map(h => <th key={h} className={`p-4 text-xs font-bold ${theme.textSec}`}>{h}</th>)}
@@ -264,6 +264,8 @@ export default function ResultsTab({ myCourses, isDarkMode }) {
                         </tbody>
                     </table>
                 </div>
+                {/* إضافة تنويه صغير للموبايل */}
+                <p className="md:hidden text-center text-[10px] text-gray-400 mt-2">اسحب الجدول يميناً ويساراً لرؤية باقي التفاصيل ↔️</p>
             </div>
         )}
     </div>

@@ -175,7 +175,7 @@ export default function CoursesTab({ courses, onRefresh, isDarkMode, adminData }
                 </button>
             </div>
         ) : (
-            <div className={`p-8 rounded-3xl border shadow-xl relative ${theme.card}`}>
+            <div className={`p-4 md:p-8 rounded-3xl border shadow-xl relative ${theme.card}`}>
                 <button onClick={() => { setIsCreating(false); setEditingId(null); setFormData(initialForm); }} className="absolute top-6 left-6 text-gray-400 hover:text-red-500 font-bold text-xl">✕ إلغاء</button>
                 <h3 className={`font-bold text-2xl mb-6 flex items-center gap-2 ${theme.textMain}`}>
                     <span className="text-3xl">{editingId ? '✏️' : '🛠️'}</span> {editingId ? 'تعديل الكورس' : 'إنشاء كورس جديد'}

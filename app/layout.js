@@ -34,7 +34,7 @@ export default function RootLayout({ children }) {
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
       </head>
       
-      <body className={`${cairo.className} antialiased`}>
+      <body className={`${cairo.className} antialiased overflow-x-hidden`}>
         {/* 👇 كود الإشعارات موجود هنا */}
         <NotificationSetup />
         

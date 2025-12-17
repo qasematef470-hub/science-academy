@@ -133,11 +133,11 @@ export default function SettingsTab({ myCourses, isDarkMode }) {
       return (
           <div className="space-y-8 animate-fade-in">
               {/* Global Control Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
                 
                 {/* 1. Study Mode Toggle */}
-                <div className={`p-6 rounded-3xl border flex items-center justify-between transition-all hover:shadow-lg ${systemModes.study_mode ? 'bg-indigo-50 border-indigo-300' : theme.card}`}>
-                    <div className="flex items-center gap-4">
+                <div className={`p-4 md:p-6 rounded-3xl border flex flex-col md:flex-row items-center justify-between gap-4 transition-all hover:shadow-lg text-center md:text-right ${systemModes.study_mode ? 'bg-indigo-50 border-indigo-300' : theme.card}`}>
+                    <div className="flex flex-col md:flex-row items-center gap-2 md:gap-4">
                         <div className={`w-12 h-12 rounded-full flex items-center justify-center text-2xl ${systemModes.study_mode ? 'bg-indigo-100 text-indigo-600' : 'bg-gray-100 text-gray-400'}`}>🎓</div>
                         <div>
                             <h4 className={`font-bold text-lg ${systemModes.study_mode ? 'text-indigo-700' : theme.textMain}`}>وضع الدراسة</h4>

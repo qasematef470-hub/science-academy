@@ -23,7 +23,7 @@ export default function Header({
   };
 
   return (
-    <header className={`sticky top-0 z-30 backdrop-blur-md border-b bg-opacity-80 px-8 py-4 flex items-center justify-between ${theme.sidebar}`}>
+    <header className={`sticky top-0 z-30 backdrop-blur-md border-b bg-opacity-80 px-4 md:px-8 py-4 flex items-center justify-between ${theme.sidebar}`}>
         <div className="flex items-center gap-4 flex-1">
             <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={`p-2 rounded-lg transition ${theme.hover} ${theme.textSec}`}>
                 <Icons.Menu />

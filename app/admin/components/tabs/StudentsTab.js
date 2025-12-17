@@ -106,7 +106,7 @@ export default function StudentsTab({
                                     {student.enrolledCourses.filter(c => myCourses.some(mc => mc.id === c.courseId) && c.status === 'pending').map(c => {
                                         const courseName = myCourses.find(mc => mc.id === c.courseId)?.name;
                                         return (
-                                            <div key={c.courseId} className="flex items-center justify-between gap-4 bg-gray-50 dark:bg-slate-800 px-4 py-2 rounded-lg border border-gray-100 dark:border-gray-700">
+                                            <div key={c.courseId} className="flex flex-wrap items-center justify-between gap-3 bg-gray-50 dark:bg-slate-800 px-3 py-2 rounded-lg border border-gray-100 dark:border-gray-700">
                                                 <div className="flex flex-col">
                                                     <span className={`text-xs font-bold ${theme.textMain}`}>{courseName}</span>
                                                     <span className={`text-[10px] ${c.paymentMethod === 'cash' ? 'text-green-600' : 'text-blue-600'}`}>

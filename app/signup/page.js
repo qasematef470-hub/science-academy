@@ -186,7 +186,7 @@ export default function SignupPage() {
       : "bg-white border border-gray-300 text-gray-900 focus:bg-gray-50";
 
   return (
-    <div className={`min-h-screen w-full flex dir-rtl font-sans overflow-hidden transition-colors duration-300 ${isDark ? 'bg-[#050505] text-white' : 'bg-gray-50 text-gray-900'}`}>
+    <div className={`min-h-[100dvh] w-full flex dir-rtl font-sans overflow-hidden transition-colors duration-300 ${isDark ? 'bg-[#050505] text-white' : 'bg-gray-50 text-gray-900'}`}>
       
       {/* 🖼️ Right Side: Visual Image (Desktop Only) */}
       <div className={`hidden lg:flex w-1/2 relative items-center justify-center overflow-hidden ${isDark ? 'bg-[#111]' : 'bg-gray-200'}`}>
@@ -244,9 +244,10 @@ export default function SignupPage() {
                 {/* 1. الاسم */}
                 <div className="space-y-4">
                     <label className="text-sm font-bold text-blue-500">👤 الاسم الثلاثي</label>
-                    <div className="grid grid-cols-3 gap-4">
-                        <input required type="text" placeholder="الأول" className={`${inputClass} rounded-xl p-4 text-center font-bold focus:border-blue-500 outline-none transition`} value={formData.firstName} onChange={(e) => handleNameInput('firstName', e.target.value)} />
-                        <input required type="text" placeholder="الأب" className={`${inputClass} rounded-xl p-4 text-center font-bold focus:border-blue-500 outline-none transition`} value={formData.middleName} onChange={(e) => handleNameInput('middleName', e.target.value)} />
+                    {/* 🔥 التعديل هنا: grid-cols-1 للموبايل و sm:grid-cols-3 للشاشات الأكبر */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <input required type="text" placeholder="الاسم الأول" className={`${inputClass} rounded-xl p-4 text-center font-bold focus:border-blue-500 outline-none transition`} value={formData.firstName} onChange={(e) => handleNameInput('firstName', e.target.value)} />
+                        <input required type="text" placeholder="اسم الأب" className={`${inputClass} rounded-xl p-4 text-center font-bold focus:border-blue-500 outline-none transition`} value={formData.middleName} onChange={(e) => handleNameInput('middleName', e.target.value)} />
                         <input required type="text" placeholder="العائلة" className={`${inputClass} rounded-xl p-4 text-center font-bold focus:border-blue-500 outline-none transition`} value={formData.lastName} onChange={(e) => handleNameInput('lastName', e.target.value)} />
                     </div>
                 </div>

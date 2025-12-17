@@ -187,6 +187,7 @@ export async function getAllCourses(filters = {}) {
 // ==========================================================
 // 📝 EXAM LOGIC (نظام الامتحانات)
 // ==========================================================
+
 export async function checkExamEligibility(studentId, courseId) {
     try {
         const userDoc = await adminDb.collection('users').doc(studentId).get();
@@ -223,7 +224,7 @@ export async function checkExamEligibility(studentId, courseId) {
         }
         durationMinutes = Number(durationMinutes) || 45;
 
-        // ✅ لو فيه استثناء: اسمح بالدخول فوراً
+        // ✅ استثناء خاص
         if (exceptionDoc.exists) {
             return { 
                 allowed: true, 
@@ -240,24 +241,25 @@ export async function checkExamEligibility(studentId, courseId) {
         if (!courseStatus) return { allowed: false, message: "غير مشترك في المادة" };
         if (courseStatus.status !== 'active') return { allowed: false, message: "اشتراكك غير مفعل بعد" };
 
-        // 🔥🔥 4. إصلاح مشكلة التوقيت (Timezone Fix) 🔥🔥
+        // 🔥🔥 4. ضبط التوقيت الدقيق (+2 ساعة - توقيت مصر) 🔥🔥
         const now = Date.now();
         
-        // بنزود 4 ساعات (بالمللي ثانية) على وقت السيرفر عشان نعادل فرق التوقيت
-        // المعادلة: 4 ساعات * 60 دقيقة * 60 ثانية * 1000
-        const TIMEZONE_OFFSET = 4 * 60 * 60 * 1000; 
+        // المعادلة: وقت السيرفر (جرينتش) + 2 ساعة = توقيت مصر الحالي
+        const TIMEZONE_OFFSET = 2 * 60 * 60 * 1000; 
         const serverTimeAdjusted = now + TIMEZONE_OFFSET;
 
         if (startDate) {
             const startTimestamp = new Date(startDate).getTime();
-            // المقارنة بتتم بالوقت المعدل، فالسيرفر هيشوف الامتحان بدأ بدري
+            // بنقارن وقت مصر (المحسوب) بوقت البدء المسجل
             if (serverTimeAdjusted < startTimestamp) {
                 return { allowed: false, message: "الامتحان لم يبدأ بعد" };
             }
         }
 
+        // ✅ شرط النهاية شغال سليم دلوقتي
         if (endDate) {
             const endTimestamp = new Date(endDate).getTime();
+            // لو وقت مصر الحالي عدى وقت النهاية -> اقفل الامتحان
             if (serverTimeAdjusted > endTimestamp) {
                 return { allowed: false, message: "انتهى وقت الامتحان" };
             }
@@ -279,7 +281,6 @@ export async function checkExamEligibility(studentId, courseId) {
         return { allowed: false, message: "Server Error: " + error.message };
     }
 }
-
 export async function logExamStart(data) {
     try {
         const { studentName, studentId, courseId, section, examCode, deviceInfo } = data;

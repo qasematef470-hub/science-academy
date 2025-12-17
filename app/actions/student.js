@@ -187,7 +187,6 @@ export async function getAllCourses(filters = {}) {
 // ==========================================================
 // 📝 EXAM LOGIC (نظام الامتحانات)
 // ==========================================================
-
 export async function checkExamEligibility(studentId, courseId) {
     try {
         const userDoc = await adminDb.collection('users').doc(studentId).get();
@@ -196,15 +195,14 @@ export async function checkExamEligibility(studentId, courseId) {
         const userData = userDoc.data();
         if (userData.isLocked) return { allowed: false, message: "حسابك مجمد" };
 
-        // 🚨 1. Check for EXCEPTIONS (Added Fix)
+        // 1. Check for EXCEPTIONS
         const exceptionId = `${courseId}_${studentId}`;
         const exceptionDoc = await adminDb.collection('exam_exceptions').doc(exceptionId).get();
 
-        // 2. Initial Settings Fetch (عشان نحتاجها للاستثناء وللعادي)
+        // 2. Initial Settings Fetch
         const settingsRef = adminDb.collection("exam_configs").doc(courseId);
         const settingsSnap = await settingsRef.get();
         
-        // 🔥 Time Finder Logic (إصلاح الوقت)
         let durationMinutes = 45;
         let examCode = "";
         let startDate = null;
@@ -217,7 +215,6 @@ export async function checkExamEligibility(studentId, courseId) {
             startDate = d.startDate;
             endDate = d.endDate;
         } else {
-            // Fallback to course data if not in config
             const courseDoc = await adminDb.collection("courses").doc(courseId).get();
             if (courseDoc.exists) {
                 const c = courseDoc.data();
@@ -226,27 +223,45 @@ export async function checkExamEligibility(studentId, courseId) {
         }
         durationMinutes = Number(durationMinutes) || 45;
 
-        // ✅ لو فيه استثناء: اسمح بالدخول فوراً (بنفس وقت الامتحان الأصلي)
+        // ✅ لو فيه استثناء: اسمح بالدخول فوراً
         if (exceptionDoc.exists) {
             return { 
                 allowed: true, 
-                durationMinutes: durationMinutes, // استخدام الوقت الحقيقي
+                durationMinutes: durationMinutes,
                 isException: true,
                 message: "تم تفعيل استثناء خاص لك" 
             };
         }
 
-        // 2. Normal Checks (لو مفيش استثناء)
+        // 3. Normal Checks
         const enrolledCourses = userData.enrolledCourses || [];
         const courseStatus = enrolledCourses.find(c => c.courseId === courseId);
 
         if (!courseStatus) return { allowed: false, message: "غير مشترك في المادة" };
         if (courseStatus.status !== 'active') return { allowed: false, message: "اشتراكك غير مفعل بعد" };
 
-        // 4. التحقق من مواعيد البدء والانتهاء
+        // 🔥🔥 4. إصلاح مشكلة التوقيت (Timezone Fix) 🔥🔥
         const now = Date.now();
-        if (startDate && now < new Date(startDate).getTime()) return { allowed: false, message: "الامتحان لم يبدأ بعد" };
-        if (endDate && now > new Date(endDate).getTime()) return { allowed: false, message: "انتهى وقت الامتحان" };
+        
+        // بنزود 4 ساعات (بالمللي ثانية) على وقت السيرفر عشان نعادل فرق التوقيت
+        // المعادلة: 4 ساعات * 60 دقيقة * 60 ثانية * 1000
+        const TIMEZONE_OFFSET = 4 * 60 * 60 * 1000; 
+        const serverTimeAdjusted = now + TIMEZONE_OFFSET;
+
+        if (startDate) {
+            const startTimestamp = new Date(startDate).getTime();
+            // المقارنة بتتم بالوقت المعدل، فالسيرفر هيشوف الامتحان بدأ بدري
+            if (serverTimeAdjusted < startTimestamp) {
+                return { allowed: false, message: "الامتحان لم يبدأ بعد" };
+            }
+        }
+
+        if (endDate) {
+            const endTimestamp = new Date(endDate).getTime();
+            if (serverTimeAdjusted > endTimestamp) {
+                return { allowed: false, message: "انتهى وقت الامتحان" };
+            }
+        }
 
         // 5. التحقق هل امتحن قبل كده ولا لأ
         const resultId = `${courseId}_${studentId}_${examCode || 'General'}`;
@@ -254,7 +269,6 @@ export async function checkExamEligibility(studentId, courseId) {
 
         if (resultDoc.exists) {
             const data = resultDoc.data();
-            // لو الامتحان لسه شغال (Running) بنرجعه يكمل بنفس الوقت المتبقي
             if (data.status.includes('Running')) return { allowed: true, resume: true, ...serializeData(data) };
             return { allowed: false, message: "لقد أديت هذا الامتحان مسبقاً" };
         }

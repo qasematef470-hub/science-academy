@@ -368,8 +368,18 @@ export async function saveCourseSettings(courseId, settingsData) {
     try {
         await assertAdmin();
         
-        // 1. حفظ الإعدادات في الداتابيز
+        // 1. حفظ الإعدادات في الداتابيز (تحديث إعدادات الكورس)
         await adminDb.collection("exam_configs").doc(courseId).set(settingsData, { merge: true });
+
+        // 🔥🔥 التعديل الهام جداً (Fix) 🔥🔥
+        // لو في كود امتحان، لازم نروح لجدول الأكواد ونخليه مرئي (Visible)
+        if (settingsData.examCode) {
+            await adminDb.collection("exam_settings").doc(settingsData.examCode).set({
+                isVisible: true, // 👈 ده اللي كان ناقص وبيخلي الامتحان يظهر للطالب
+                courseId: courseId, // عشان نعرف الكود ده تبع انهي كورس
+                createdAt: FieldValue.serverTimestamp()
+            }, { merge: true });
+        }
 
         // 👇👇 بداية كود الإشعار 👇👇
         // لو الأدمن مفعل خيار "إرسال إشعار" أو لو ده امتحان جديد بكود
@@ -380,7 +390,6 @@ export async function saveCourseSettings(courseId, settingsData) {
             const courseName = courseDoc.exists ? (courseDoc.data().name || courseDoc.data().title) : "المادة";
 
             // ب. نجيب الطلاب المشتركين في الكورس ده بس (Active)
-            // ملحوظة: عشان الداتابيز NoSQL، هنجيب الطلاب ونفلترهم
             const usersSnap = await adminDb.collection('users')
                 .where('role', '==', 'student')
                 .get();
@@ -422,7 +431,7 @@ export async function saveCourseSettings(courseId, settingsData) {
         }
         // 👆👆 نهاية كود الإشعار 👆👆
 
-        return { success: true, message: "تم الحفظ وإرسال الإشعارات للطلاب 📨" };
+        return { success: true, message: "تم الحفظ وتفعيل الامتحان للطلاب ✅" };
     } catch (error) { 
         console.error(error);
         return { success: false, message: error.message }; 

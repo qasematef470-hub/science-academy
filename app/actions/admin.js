@@ -121,8 +121,12 @@ export async function saveUniversityStructure(structure) {
 // ==========================================================
 // 🎓 3. إدارة الكورسات (Course Management)
 // ==========================================================
+// ==========================================================
+// 🎓 تعديل: إنشاء كورس مع تسجيل بصمة المحاضر (ID)
+// ==========================================================
 export async function createCourse(courseData) {
   try {
+    // 1. نجيب الـ ID بتاع المحاضر اللي بينشئ الكورس
     const adminUid = await assertAdmin();
     
     const newCourse = {
@@ -131,7 +135,10 @@ export async function createCourse(courseData) {
       paymentNumber: courseData.paymentNumber || "",
       paymentMethods: courseData.paymentMethods || "both",
       contactPhone: courseData.contactPhone || "",
-      instructorId: adminUid, // ربط الكورس بالأدمن الحالي
+      
+      // 🔥🔥🔥 السطر ده هو "الختم" اللي بيخلي الكورس يظهرلك 🔥🔥🔥
+      instructorId: adminUid, 
+      
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
       active: true
@@ -139,17 +146,20 @@ export async function createCourse(courseData) {
 
     const docRef = await adminDb.collection('courses').add(newCourse);
 
-    // 🔥 المزامنة مع الهيكل الجديد
-    await syncUniversityStructure(
-        courseData.university, // تأكد إن الحقل ده بيتبعت من الـ Form
-        courseData.college, 
-        courseData.year, 
-        courseData.section
-    );
+    // تحديث هيكل الجامعة (لو موجود)
+    if (courseData.university && courseData.college) {
+        await syncUniversityStructure(
+            courseData.university, 
+            courseData.college, 
+            courseData.year, 
+            courseData.section
+        );
+    }
 
     revalidatePath("/admin");
-    return { success: true, id: docRef.id, message: "تم إنشاء الكورس بنجاح" };
+    return { success: true, id: docRef.id, message: "تم إنشاء الكورس وربطه بحسابك بنجاح ✅" };
   } catch (error) { 
+    console.error("Create Course Error:", error);
     return { success: false, message: error.message }; 
   }
 }
@@ -188,31 +198,49 @@ export async function deleteCourse(courseId) {
         return { success: false, message: error.message };
     }
 }
-
-export async function getInstructorCourses(uid) {
+// ==========================================================
+// 🎓 تعديل هام: جلب الكورسات الخاصة بالمحاضر فقط
+// ==========================================================
+export async function getInstructorCourses() {
   try {
-    // لو مبعوت UID هات للكورس ده، لو لا هات الكل (للماستر أدمن)
-    let query = adminDb.collection('courses').orderBy("createdAt", "desc");
-    
-    // يمكن تفعيل الفلتر ده لو عندك أكتر من مدرس
-    // if (uid) query = query.where('instructorId', '==', uid);
+    // 1. التأكد من هوية المحاضر
+    const adminUid = await assertAdmin();
 
-    const snapshot = await query.get();
+    // 2. تحديد الإيميلات المسموح لها برؤية كل شيء (الماستر أدمن)
+    // استبدل الإيميل ده بإيميلك الشخصي لو عاوز تشوف كل حاجة
+    const MASTER_ADMINS = ["admin@tamam.com"]; 
+    
+    // نجيب بيانات اليوزر عشان نتأكد من الإيميل
+    const userRecord = await adminAuth.getUser(adminUid);
+    const isMaster = MASTER_ADMINS.includes(userRecord.email);
+
+    let query = adminDb.collection('courses');
+
+    // 🔥 الشرط الجذري: لو مش "ماستر أدمن"، هات كورساتي أنا بس
+    if (!isMaster) {
+        query = query.where('instructorId', '==', adminUid);
+    }
+
+    // ترتيب الكورسات (الأحدث فالأقدم)
+    const snapshot = await query.orderBy("createdAt", "desc").get();
     
     const courses = snapshot.docs.map(doc => {
         const data = doc.data();
         return {
-            ...data, // ده بيجيب كل البيانات
+            ...data,
             id: doc.id,
-            // 👇 التعديل هنا: لازم نحول كل التواريخ لنصوص صريحة
-            createdAt: data.createdAt && data.createdAt.toDate ? data.createdAt.toDate().toISOString() : null,
-            updatedAt: data.updatedAt && data.updatedAt.toDate ? data.updatedAt.toDate().toISOString() : null,
+            // تحويل التواريخ لنصوص عشان ميعملش مشاكل في الموقع
+            createdAt: data.createdAt?.toDate?.().toISOString() || null,
+            updatedAt: data.updatedAt?.toDate?.().toISOString() || null,
             startDate: data.startDate || "",
         };
     });
 
     return { success: true, data: courses };
-  } catch (error) { return { success: false, message: error.message }; }
+  } catch (error) { 
+      console.error("Error fetching courses:", error);
+      return { success: false, message: error.message }; 
+  }
 }
 // ==========================================================
 // 👥 4. إدارة الطلاب (Students)

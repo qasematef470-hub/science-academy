@@ -397,7 +397,7 @@ export async function saveCourseSettings(courseId, settingsData) {
         await assertAdmin();
         
         // 1. حفظ الإعدادات في الداتابيز (تحديث إعدادات الكورس)
-        await adminDb.collection("exam_configs").doc(courseId).set(settingsData, { merge: true });
+        await adminDb.collection("exam_configs").doc(courseId).set(settingsData);
 
         // 🔥🔥 التعديل الهام جداً (Fix) 🔥🔥
         // لو في كود امتحان، لازم نروح لجدول الأكواد ونخليه مرئي (Visible)
@@ -477,10 +477,29 @@ export async function getCourseSettings(courseId) {
 export async function getUniqueLectures(courseId) {
     try {
         const snapshot = await adminDb.collection('questions_bank').where('courseId', '==', courseId).get();
-        const lectures = new Set();
-        snapshot.docs.forEach(doc => { if (doc.data().lecture) lectures.add(doc.data().lecture); });
-        return { success: true, data: Array.from(lectures) };
-    } catch (e) { return { success: false, data: [] }; }
+        const stats = {}; // هنخزن هنا الإحصائيات
+        
+        snapshot.docs.forEach(doc => {
+            const q = doc.data();
+            const lec = q.lecture || "بدون عنوان";
+            const diff = (q.difficulty || q.level || 'easy').toLowerCase();
+            
+            if (!stats[lec]) stats[lec] = { easy: 0, medium: 0, hard: 0, total: 0 };
+            
+            if (diff.includes('easy') || diff.includes('سهل')) stats[lec].easy++;
+            else if (diff.includes('medium') || diff.includes('متوسط')) stats[lec].medium++;
+            else if (diff.includes('hard') || diff.includes('صعب')) stats[lec].hard++;
+            
+            stats[lec].total++;
+        });
+
+        // هنرجع أسامي المحاضرات ومعاها الداتا بتاعتها
+        return { 
+            success: true, 
+            data: Object.keys(stats), 
+            stats: stats // 👈 دي اللي هنستخدمها للتأكد
+        };
+    } catch (e) { return { success: false, data: [], stats: {} }; }
 }
 
 // ==========================================================

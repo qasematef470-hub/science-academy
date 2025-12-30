@@ -328,46 +328,79 @@ export async function logExamStart(data) {
 
 export async function getExamQuestions(courseId) {
     try {
+        // 1. جلب الإعدادات اللي أنت عملتها في الـ Admin
         const settingsSnap = await adminDb.collection("exam_configs").doc(courseId).get();
-        let limitCount = 20;
+        if (!settingsSnap.exists) return { success: false, message: "لم يتم ضبط إعدادات الامتحان" };
+        
+        const settings = settingsSnap.data();
+        const { 
+            includedLectures = [], 
+            lectureCounts = {}, 
+            easyPercent = 30, 
+            mediumPercent = 50, 
+            hardPercent = 20,
+            questionCount = 20 
+        } = settings;
 
-        if (settingsSnap.exists) {
-            limitCount = settingsSnap.data().questionCount || 20;
-        }
-
+        // 2. جلب كل الأسئلة المتاحة للمادة من البنك
         const snapshot = await adminDb.collection('questions_bank').where('courseId', '==', courseId).get();
-        if (snapshot.empty) return { success: false, message: "لا توجد أسئلة" };
+        if (snapshot.empty) return { success: false, message: "بنك الأسئلة فارغ لهذه المادة" };
 
         let allQuestions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        
-        // Randomize questions (لخبطة الأسئلة نفسها)
-        let selectedQuestions = allQuestions.sort(() => Math.random() - 0.5).slice(0, limitCount);
 
-        const cleanQuestions = selectedQuestions.map(q => {
-            // 🔥 الإصلاح هنا:
-            // 1. بنحتفظ بالترتيب الأصلي (originalIdx) قبل اللخبطة
+        // 3. فلترة الأسئلة بناءً على المحاضرات المختارة (Chapters)
+        let filteredPool = allQuestions;
+        if (includedLectures.length > 0) {
+            filteredPool = allQuestions.filter(q => includedLectures.includes(q.lecture));
+        }
+
+        // 4. تقسيم الأسئلة المفلترة حسب الصعوبة
+        const easyPool = filteredPool.filter(q => q.difficulty === 'easy' || q.difficulty === 'سهل').sort(() => Math.random() - 0.5);
+        const mediumPool = filteredPool.filter(q => q.difficulty === 'medium' || q.difficulty === 'متوسط').sort(() => Math.random() - 0.5);
+        const hardPool = filteredPool.filter(q => q.difficulty === 'hard' || q.difficulty === 'صعب').sort(() => Math.random() - 0.5);
+
+        // 5. حساب عدد الأسئلة المطلوب من كل مستوى بناءً على النسب المئوية
+        const countEasy = Math.round((easyPercent / 100) * questionCount);
+        const countMedium = Math.round((mediumPercent / 100) * questionCount);
+        const countHard = questionCount - (countEasy + countMedium); // الباقي للصعب
+
+        // 6. تجميع الأسئلة النهائية
+        let finalQuestions = [
+            ...easyPool.slice(0, countEasy),
+            ...mediumPool.slice(0, countMedium),
+            ...hardPool.slice(0, countHard)
+        ];
+
+        // 7. لو لسه العدد أقل من المطلوب (بسبب نقص في البنك)، كمل من المتاح عشوائياً
+        if (finalQuestions.length < questionCount) {
+            const currentIds = finalQuestions.map(q => q.id);
+            const remaining = filteredPool.filter(q => !currentIds.includes(q.id));
+            finalQuestions = [...finalQuestions, ...remaining.slice(0, questionCount - finalQuestions.length)];
+        }
+
+        // 8. لخبطة الأسئلة النهائية ولخبطة الاختيارات (عشان كل طالب يجيله ترتيب مختلف)
+        const readyQuestions = finalQuestions.sort(() => Math.random() - 0.5).map(q => {
             const optionsWithIndex = q.options.map((opt, idx) => ({
                 text: opt.text,
-                originalIdx: idx // 👈 ده المفتاح اللي كان ناقص
+                originalIdx: idx
             }));
-
-            // 2. نلخبط الاختيارات
             const shuffledOptions = optionsWithIndex.sort(() => Math.random() - 0.5);
 
             return {
                 id: q.id,
                 question: q.question,
                 image: q.image,
-                options: shuffledOptions, // نبعتها متلخبطة ومعاها مفاتيحها
+                options: shuffledOptions,
                 lecture: q.lecture,
-                difficulty: q.difficulty || 'medium'
+                difficulty: q.difficulty
             };
         });
 
-        return { success: true, data: cleanQuestions };
+        return { success: true, data: readyQuestions };
 
     } catch (error) {
-        return { success: false, message: "فشل تحميل الأسئلة" };
+        console.error("Exam Generation Error:", error);
+        return { success: false, message: "حدث خطأ أثناء توليد الأسئلة" };
     }
 }
 

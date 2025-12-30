@@ -19,13 +19,14 @@ export default function SettingsTab({ myCourses, isDarkMode }) {
   };
 
   // States
+  // States
   const [selectedCourseId, setSelectedCourseId] = useState(null); 
   const [availableLectures, setAvailableLectures] = useState([]);
-  // 👇 Default values for modes
+  const [lectureStats, setLectureStats] = useState({}); // 👈 ضيف السطر ده هنا
   const [systemModes, setSystemModes] = useState({ 
       study_mode: true, 
       revision_mode: false, 
-      vacation_mode: false // Changed from summer_mode to vacation_mode for consistency
+      vacation_mode: false 
   });
   const [loadingSettings, setLoadingSettings] = useState(false);
 
@@ -63,18 +64,24 @@ export default function SettingsTab({ myCourses, isDarkMode }) {
         setLoadingSettings(true);
         const lRes = await getUniqueLectures(selectedCourseId);
         setAvailableLectures(lRes.success ? lRes.data : []);
+        setLectureStats(lRes.stats || {});
 
         const sRes = await getCourseSettings(selectedCourseId);
+        
+        // دي القيم اللي هنصفر بيها الصفحة
+        const emptySettings = { 
+            duration: 45, count: 0, examCode: '', allowReview: false,
+            easyPercent: 30, mediumPercent: 50, hardPercent: 20,
+            startDate: '', endDate: '',
+            enableCertificate: false, minScorePercent: 90, 
+            includedLectures: [], lectureCounts: {} 
+        };
+
         if (sRes.success && sRes.data) {
-            setSettings(prev => ({ ...prev, ...sRes.data }));
+            // هنا بنصفر الصفحة أولاً بالـ emptySettings وبعدين نحط بيانات المادة
+            setSettings({ ...emptySettings, ...sRes.data });
         } else {
-            setSettings({ 
-                duration: 45, count: 20, examCode: '', allowReview: false,
-                easyPercent: 30, mediumPercent: 50, hardPercent: 20,
-                startDate: '', endDate: '',
-                enableCertificate: false, minScorePercent: 90, 
-                includedLectures: [], lectureCounts: {} 
-            });
+            setSettings(emptySettings);
         }
         setLoadingSettings(false);
     }
@@ -88,39 +95,70 @@ export default function SettingsTab({ myCourses, isDarkMode }) {
       await toggleSystemMode(mode, newState);
   };
 
-  const saveSettingsHandler = async () => {
-    const totalDiff = Number(settings.easyPercent) + Number(settings.mediumPercent) + Number(settings.hardPercent);
-    if (totalDiff !== 100) return alert(`⚠️ مجموع الصعوبة لازم 100% (الحالي: ${totalDiff}%)`);
+  const resetExamSettings = async () => {
+    if (!confirm("هل أنت متأكد من حذف جميع إعدادات الامتحان الحالية والبدء من الصفر؟")) return;
     
-    if (settings.includedLectures.length > 0) {
-        const lecturesTotal = Object.values(settings.lectureCounts).reduce((a, b) => Number(a) + Number(b), 0);
-        if (lecturesTotal !== Number(settings.count)) setSettings(prev => ({ ...prev, count: lecturesTotal }));
+    // 1. تصفير الـ State في الصفحة فوراً
+    const cleared = { 
+        duration: 45, count: 0, examCode: '', allowReview: false,
+        easyPercent: 30, mediumPercent: 50, hardPercent: 20,
+        startDate: '', endDate: '',
+        enableCertificate: false, minScorePercent: 90, 
+        includedLectures: [], lectureCounts: {} 
+    };
+    setSettings(cleared);
+
+    // 2. مسح الإعدادات من الداتابيز نهائياً
+    const res = await saveCourseSettings(selectedCourseId, cleared);
+    
+    if (res.success) {
+        alert("✅ تم تصفير الامتحان بنجاح. يمكنك الآن ضبط إعدادات جديدة.");
+    } else {
+        alert("❌ فشل التصفير");
     }
-
-    const res = await saveCourseSettings(selectedCourseId, {
-        ...settings,
-        examDuration: Number(settings.duration), 
-        questionCount: Number(settings.count),
-        easyPercent: Number(settings.easyPercent),
-        mediumPercent: Number(settings.mediumPercent),
-        hardPercent: Number(settings.hardPercent),
-        minScorePercent: Number(settings.minScorePercent),
-    });
-
-    if (res.success) alert("✅ تم حفظ الإعدادات");
-    else alert("❌ خطأ في الحفظ");
   };
+    const saveSettingsHandler = async () => {
+        // 1. حساب الإجمالي المطلوب لكل مستوى
+        const totalQuestions = Number(settings.count);
+        const reqEasy = Math.round((Number(settings.easyPercent) / 100) * totalQuestions);
+        const reqMedium = Math.round((Number(settings.mediumPercent) / 100) * totalQuestions);
+        const reqHard = totalQuestions - (reqEasy + reqMedium);
+
+        // 2. حساب المتاح فعلياً في المحاضرات المختارة بس
+        let availEasy = 0, availMedium = 0, availHard = 0;
+    
+        settings.includedLectures.forEach(lecName => {
+            const s = lectureStats[lecName] || { easy: 0, medium: 0, hard: 0 };
+            availEasy += s.easy;
+            availMedium += s.medium;
+            availHard += s.hard;
+        });
+
+        // 3. التحقق (Validation)
+        let errors = [];
+        if (availEasy < reqEasy) errors.push(`❌ السهل: متاح ${availEasy} ومطلوب ${reqEasy}`);
+        if (availMedium < reqMedium) errors.push(`❌ المتوسط: متاح ${availMedium} ومطلوب ${reqMedium}`);
+        if (availHard < reqHard) errors.push(`❌ الصعب: متاح ${availHard} ومطلوب ${reqHard}`);
+
+        if (errors.length > 0) {
+            return alert(`⚠️ لا يمكن حفظ الإعدادات! الأسئلة في البنك غير كافية:\n\n${errors.join('\n')}\n\nمن فضلك قلل عدد الأسئلة أو أضف أسئلة جديدة للبنك.`);
+        }
+
+        // 4. لو كله تمام.. كمل حفظ عادي
+        const res = await saveCourseSettings(selectedCourseId, { ...settings });
+        if (res.success) alert("✅ تم حفظ الإعدادات بنجاح والبنك يغطي الطلب.");
+    };
 
   const toggleLectureSelection = (lecture) => {
     setSettings(prev => {
         const currentLectures = prev.includedLectures || []; 
         const currentCounts = { ...prev.lectureCounts };
-
         if (currentLectures.includes(lecture)) {
             const newLectures = currentLectures.filter(l => l !== lecture);
             delete currentCounts[lecture];
             const newTotal = Object.values(currentCounts).reduce((a, b) => Number(a) + Number(b), 0);
-            return { ...prev, includedLectures: newLectures, lectureCounts: currentCounts, count: newLectures.length > 0 ? newTotal : 20 };
+            // خلي الـ count هو الإجمالي الفعلي للمحاضرات المختارة بس
+            return { ...prev, includedLectures: newLectures, lectureCounts: currentCounts, count: newTotal };
         } else {
             return { ...prev, includedLectures: [...currentLectures, lecture] };
         }
@@ -316,9 +354,21 @@ export default function SettingsTab({ myCourses, isDarkMode }) {
                     </div>
                 </div>
 
-                <div className="lg:col-span-3">
-                    <button onClick={saveSettingsHandler} className={`w-full py-4 rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-transform ${theme.accentGradient}`}>
-                        💾 حفظ جميع الإعدادات
+                <div className="lg:col-span-3 flex flex-col md:flex-row gap-4">
+                    {/* زرار التصفير الجديد */}
+                    <button 
+                        onClick={resetExamSettings} 
+                        className="flex-1 py-4 rounded-xl font-bold text-lg border-2 border-red-500 text-red-500 hover:bg-red-500 hover:text-white transition-all active:scale-95"
+                    >
+                        🗑️ إلغاء الامتحان وتصفير الأرقام
+                    </button>
+
+                    {/* زرار الحفظ القديم */}
+                    <button 
+                        onClick={saveSettingsHandler} 
+                        className={`flex-[2] py-4 rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-transform ${theme.accentGradient}`}
+                    >
+                        💾 حفظ الإعدادات الجديدة
                     </button>
                 </div>
             </div>

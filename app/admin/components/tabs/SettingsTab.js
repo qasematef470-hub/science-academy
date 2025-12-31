@@ -118,36 +118,49 @@ export default function SettingsTab({ myCourses, isDarkMode }) {
     }
   };
     const saveSettingsHandler = async () => {
-        // 1. حساب الإجمالي المطلوب لكل مستوى
-        const totalQuestions = Number(settings.count);
-        const reqEasy = Math.round((Number(settings.easyPercent) / 100) * totalQuestions);
-        const reqMedium = Math.round((Number(settings.mediumPercent) / 100) * totalQuestions);
-        const reqHard = totalQuestions - (reqEasy + reqMedium);
+    // 1. حساب المجموع الفعلي من المحاضرات المختارة الآن
+    const lecturesTotal = (settings.includedLectures || []).reduce((acc, lec) => {
+        return acc + (Number(settings.lectureCounts?.[lec]) || 0);
+    }, 0);
 
-        // 2. حساب المتاح فعلياً في المحاضرات المختارة بس
-        let availEasy = 0, availMedium = 0, availHard = 0;
-    
-        settings.includedLectures.forEach(lecName => {
-            const s = lectureStats[lecName] || { easy: 0, medium: 0, hard: 0 };
-            availEasy += s.easy;
-            availMedium += s.medium;
-            availHard += s.hard;
-        });
+    // 2. التحقق من مجموع الصعوبة
+    const totalDiff = Number(settings.easyPercent) + Number(settings.mediumPercent) + Number(settings.hardPercent);
+    if (totalDiff !== 100) return alert(`⚠️ مجموع الصعوبة لازم 100% (الحالي: ${totalDiff}%)`);
 
-        // 3. التحقق (Validation)
-        let errors = [];
-        if (availEasy < reqEasy) errors.push(`❌ السهل: متاح ${availEasy} ومطلوب ${reqEasy}`);
-        if (availMedium < reqMedium) errors.push(`❌ المتوسط: متاح ${availMedium} ومطلوب ${reqMedium}`);
-        if (availHard < reqHard) errors.push(`❌ الصعب: متاح ${availHard} ومطلوب ${reqHard}`);
+    // 3. التحقق من توفر الأسئلة في البنك
+    const reqEasy = Math.round((Number(settings.easyPercent) / 100) * lecturesTotal);
+    const reqMedium = Math.round((Number(settings.mediumPercent) / 100) * lecturesTotal);
+    const reqHard = lecturesTotal - (reqEasy + reqMedium);
 
-        if (errors.length > 0) {
-            return alert(`⚠️ لا يمكن حفظ الإعدادات! الأسئلة في البنك غير كافية:\n\n${errors.join('\n')}\n\nمن فضلك قلل عدد الأسئلة أو أضف أسئلة جديدة للبنك.`);
-        }
+    let availEasy = 0, availMedium = 0, availHard = 0;
+    settings.includedLectures.forEach(lecName => {
+        const s = lectureStats[lecName] || { easy: 0, medium: 0, hard: 0 };
+        availEasy += s.easy; availMedium += s.medium; availHard += s.hard;
+    });
 
-        // 4. لو كله تمام.. كمل حفظ عادي
-        const res = await saveCourseSettings(selectedCourseId, { ...settings });
-        if (res.success) alert("✅ تم حفظ الإعدادات بنجاح والبنك يغطي الطلب.");
-    };
+    if (availEasy < reqEasy || availMedium < reqMedium || availHard < reqHard) {
+        return alert("⚠️ الأسئلة في البنك غير كافية لهذا العدد!");
+    }
+
+    // 4. الحفظ في الداتابيز
+    const res = await saveCourseSettings(selectedCourseId, {
+        ...settings,
+        questionCount: lecturesTotal, // الرقم الحقيقي
+        examDuration: Number(settings.duration), 
+        easyPercent: Number(settings.easyPercent),
+        mediumPercent: Number(settings.mediumPercent),
+        hardPercent: Number(settings.hardPercent),
+        minScorePercent: Number(settings.minScorePercent),
+    });
+
+    if (res.success) {
+        setSettings(prev => ({ ...prev, count: lecturesTotal }));
+        // 👇 هنا التعديل: الرقم بقى يطلع ديناميكي حسب اختيارك
+        alert(`✅ تم الحفظ بنجاح والامتحان الآن ${lecturesTotal} سؤال`); 
+    } else {
+        alert("❌ خطأ في الحفظ");
+    }
+  };
 
   const toggleLectureSelection = (lecture) => {
     setSettings(prev => {

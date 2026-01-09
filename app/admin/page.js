@@ -100,6 +100,13 @@ export default function AdminDashboard() {
     });
     return () => unsubscribe();
   }, []);
+  useEffect(() => {
+    if (activeTab === 'questions' && questionsList.length === 0 && myCourses.length > 0) {
+       // لو مفيش كورس مختار، نختار الأول
+       const courseId = selectedCourseForQ || myCourses[0].id;
+       fetchQuestions(courseId);
+    }
+  }, [activeTab]);
   // --- Data Loading Functions ---
   const loadInitialData = async (uid) => {
       // 1. Get Courses
@@ -107,10 +114,16 @@ export default function AdminDashboard() {
       if (cRes.success) {
           setMyCourses(cRes.data);
           if (cRes.data.length > 0) setSelectedCourseForQ(cRes.data[0].id);
+          
           // Fetch dependent data
           fetchStudents(cRes.data);
-          fetchQuestions(cRes.data.length > 0 ? cRes.data[0].id : null);
-          calculateStats(cRes.data); // Initial stats calculation
+          //fetchQuestions(cRes.data.length > 0 ? cRes.data[0].id : null);
+          
+          // ❌ احذف السطر ده أو خليه كومنت عشان نتأكد إنه مش هيشتغل
+          // calculateStats(cRes.data); 
+          
+          // ✅ البديل: نادي الدالة الجديدة الموفرة
+          calculateStats(null);
       }
 
       // 2. Get Announcements
@@ -152,40 +165,50 @@ export default function AdminDashboard() {
     setQuestionsList(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
   };
 
-  const calculateStats = async (courses) => {
+  //const calculateStats = async (courses) => {
       // Simple Analytics based on fetched results (This could be moved to backend for performance later)
-      try {
-        const q = query(collection(db, "results"), orderBy("startTime", "desc"));
-        const snap = await getDocs(q);
-        const myCourseIds = courses.map(c => c.id);
-        const data = snap.docs.map(d => d.data()).filter(r => myCourseIds.includes(r.courseId));
-        
-        let passed = 0, failed = 0;
-        let grades = { Excellent: 0, VeryGood: 0, Good: 0, Acceptable: 0, Fail: 0 };
-
-        data.forEach(r => {
-            if (r.total > 0) {
-                const percent = (r.score / r.total) * 100;
-                if (percent >= 50) passed++; else failed++;
-                if (percent >= 85) grades.Excellent++;
-                else if (percent >= 75) grades.VeryGood++;
-                else if (percent >= 65) grades.Good++;
-                else if (percent >= 50) grades.Acceptable++;
-                else grades.Fail++;
-            }
-        });
-
+    //  try {
+    //    const q = query(collection(db, "results"), orderBy("startTime", "desc"));
+    //    const snap = await getDocs(q);
+    //    const myCourseIds = courses.map(c => c.id);
+    //    const data = snap.docs.map(d => d.data()).filter(r => myCourseIds.includes(r.courseId));
+    //    
+    //    let passed = 0, failed = 0;
+    //    let grades = { Excellent: 0, VeryGood: 0, Good: 0, Acceptable: 0, Fail: 0 };
+    //
+    //    data.forEach(r => {
+    //        if (r.total > 0) {
+    //            const percent = (r.score / r.total) * 100;
+    //            if (percent >= 50) passed++; else failed++;
+    //            if (percent >= 85) grades.Excellent++;
+    //            else if (percent >= 75) grades.VeryGood++;
+    //            else if (percent >= 65) grades.Good++;
+    //            else if (percent >= 50) grades.Acceptable++;
+    //            else grades.Fail++;
+    //        }
+    //    });
+    //
+    //    setStats({
+    //        title: 'إحصائيات عامة',
+    //        passData: [{ name: 'ناجح', value: passed, color: '#10B981' }, { name: 'راسب', value: failed, color: '#EF4444' }],
+    //        gradeData: [
+    //            { name: 'امتياز', count: grades.Excellent }, { name: 'جيد جداً', count: grades.VeryGood },
+    //            { name: 'جيد', count: grades.Good }, { name: 'مقبول', count: grades.Acceptable }, { name: 'ضعيف', count: grades.Fail }
+    //        ]
+    //    });
+    //  } catch (e) { console.error("Stats Error:", e); }
+  //};
+    // ❌ دالة الإحصائيات القديمة كانت بتسحب كل الداتا
+    // ✅ الدالة الجديدة (الموفرة): بترجع أصفار عشان الموقع يفتح وميسحبش رصيد
+    const calculateStats = async (courses) => {
+        console.log("⚠️ تم إيقاف الإحصائيات مؤقتاً لتوفير الرصيد");
         setStats({
-            title: 'إحصائيات عامة',
-            passData: [{ name: 'ناجح', value: passed, color: '#10B981' }, { name: 'راسب', value: failed, color: '#EF4444' }],
-            gradeData: [
-                { name: 'امتياز', count: grades.Excellent }, { name: 'جيد جداً', count: grades.VeryGood },
-                { name: 'جيد', count: grades.Good }, { name: 'مقبول', count: grades.Acceptable }, { name: 'ضعيف', count: grades.Fail }
-            ]
+            title: 'إحصائيات عامة (موقوفة مؤقتاً)',
+            passData: [{ name: 'ناجح', value: 0, color: '#10B981' }, { name: 'راسب', value: 0, color: '#EF4444' }],
+            gradeData: []
         });
-      } catch (e) { console.error("Stats Error:", e); }
-  };
-
+        // ملحوظة: لما ترقي الباقة لـ Blaze ابقى رجع الكود القديم لو محتاجه
+    };
   if (loading) return (
     <div className={`min-h-screen flex flex-col items-center justify-center dir-rtl ${isDarkMode ? 'bg-slate-950 text-white' : 'bg-gray-50 text-slate-900'}`}>
         <div className="w-16 h-16 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>

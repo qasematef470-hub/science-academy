@@ -1,60 +1,58 @@
-'use server'
+'use server';
 
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { adminDb } from "@/lib/firebase-admin-config";
 
-// 1. جلب هيكلة الجامعة لصفحة التسجيل (Public)
-export async function getUniversityStructure() {
-  try {
-    const doc = await adminDb.collection('settings').doc('university_structure').get();
-    if (!doc.exists) return { structure: [] };
-    return doc.data(); // هيرجع { structure: [...] }
-  } catch (error) {
-    console.error("Error fetching structure:", error);
-    return { structure: [] };
-  }
+// 1. إنشاء الجلسة (Login)
+export async function createSession(idToken, role) {
+  const cookieStore = await cookies();
+
+  // إعداد الكوكيز
+  const options = {
+    maxAge: 60 * 60 * 24 * 5, // 5 أيام
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    sameSite: 'lax',
+  };
+
+  cookieStore.set('firebaseToken', idToken, options);
+  cookieStore.set('userRole', role, options);
 }
 
-// 2. تسجيل مستخدم جديد (Register User)
-export async function registerUser(userData) {
-  try {
-    const { uid, email, name, phone, photoURL, isVacationMode, ...academicInfo } = userData;
+// 2. تسجيل الخروج (Logout)
+export async function logout() {
+  const cookieStore = await cookies();
 
-    // تجهيز بيانات الطالب
-    const studentProfile = {
-      uid,
-      email,
-      name,
-      firstName: name.split(' ')[0], // استخراج الاسم الأول
-      phone,
-      photoURL: photoURL || "",
-      role: 'student',
-      isLocked: false,
-      createdAt: new Date().toISOString(),
-      enrolledCourses: [], // مصفوفة فاضية في البداية
-      
-      // البيانات الدراسية (ديناميكية)
-      isVacationMode: !!isVacationMode,
-      // لو وضع أجازة، هنحفظ بياناته الخاصة بالأجازة
-      // لو وضع دراسي، هنحفظ الكلية والسنة
-      ...academicInfo 
-    };
+  // مسح الكوكيز
+  cookieStore.delete('firebaseToken');
+  cookieStore.delete('userRole');
 
-    // حفظ في Firestore
-    await adminDb.collection('users').doc(uid).set(studentProfile, { merge: true });
-
-    return { success: true };
-  } catch (error) {
-    console.error("Registration Error:", error);
-    return { success: false, error: error.message };
-  }
+  // التوجيه لصفحة الدخول
+  redirect('/login');
 }
 
-// 3. التحقق من حالة "وضع الأجازة" (عشان الفورم يعرف يظهر إيه)
+// 3. جلب إعدادات النظام (للصفحة الرئيسية)
 export async function getSystemConfig() {
   try {
-    const doc = await adminDb.collection('settings').doc('system_config').get();
-    return doc.exists ? doc.data() : {};
+    const docRef = adminDb.collection("settings").doc("system_config");
+    const docSnap = await docRef.get();
+
+    if (docSnap.exists) {
+      return docSnap.data();
+    }
+    return {
+      study_mode: true,
+      revision_mode: false,
+      vacation_mode: false
+    };
   } catch (error) {
-    return {};
+    console.error("Error fetching system config:", error);
+    return {
+      study_mode: true,
+      revision_mode: false,
+      vacation_mode: false
+    };
   }
 }

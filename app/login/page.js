@@ -13,7 +13,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import BrandLogo from '../components/ui/BrandLogo';
-import { createSession } from '../auth-action';
+import { createSession } from '@/app/actions/auth';
 
 function LoginContent() {
   
@@ -38,24 +38,31 @@ function LoginContent() {
   const processUserLogin = async (user) => {
     try {
       const idToken = await user.getIdToken();
-      await createSession(idToken);
-
+      
+      // جلب بيانات المستخدم للتأكد من الرتبة والحظر
       const userDocRef = doc(db, 'users', user.uid);
       const userDocSnap = await getDoc(userDocRef);
 
       if (userDocSnap.exists()) {
         const userData = userDocSnap.data();
+        
         if (userData.isLocked) {
             setError('⛔ هذا الحساب مجمد. يرجى مراجعة الإدارة.');
+            await auth.signOut(); 
             setLoading(false);
             setGoogleLoading(false);
             return;
         }
+
+        // أرسل الـ Token والـ Role للدالة الجديدة
+        await createSession(idToken, userData.role);
+
         if (userData.role === 'admin') router.push(redirectPath === '/' ? '/admin' : redirectPath); 
         else if (userData.role === 'student') router.push(redirectPath === '/' ? '/dashboard' : redirectPath); 
         else setError('حسابك غير معروف الصلاحية.');
       } else {
         setError('⚠️ الحساب غير مسجل. يرجى إنشاء حساب جديد.');
+        await auth.signOut();
       }
     } catch (err) {
       setError('خطأ في المعالجة: ' + err.message);

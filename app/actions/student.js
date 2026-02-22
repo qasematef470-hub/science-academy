@@ -78,7 +78,7 @@ export async function getStudentDashboardData(uid) {
 
         const results = await Promise.all(resSnap.docs.map(async d => {
             const rData = d.data();
-            
+
             // أ. نجيب إعدادات الكورس العامة (عشان الشهادة)
             let courseConfig = {};
             if (rData.courseId) {
@@ -99,9 +99,9 @@ export async function getStudentDashboardData(uid) {
                 id: d.id,
                 ...serializeData(rData),
                 // هنا بنقوله المراجعة متاحة بس لو الأدمن فعل زرار العين للكود ده
-                allowReview: isReviewVisible, 
+                allowReview: isReviewVisible,
                 // والشهادة متاحة لو مفعلة في إعدادات الكورس العامة
-                allowCertificate: courseConfig.enableCertificate === true 
+                allowCertificate: courseConfig.enableCertificate === true
             };
         }));
 
@@ -147,8 +147,8 @@ export async function getAllCourses(filters = {}) {
             } else if (filters.mode === 'summer') {
                 query = query.where('type', '==', 'summer');
             } else if (filters.mode === 'academic') {
-                 // For academic, we want strict university matching if provided
-                 query = query.where('type', '==', 'academic');
+                // For academic, we want strict university matching if provided
+                query = query.where('type', '==', 'academic');
             }
         }
 
@@ -170,7 +170,7 @@ export async function getAllCourses(filters = {}) {
                 image: data.image || null,
             };
         });
-        
+
         // Additional Client-side filtering if Firestore limits are hit (e.g. section)
         let filteredCourses = courses;
         if (filters.section && filters.mode !== 'summer') {
@@ -203,7 +203,7 @@ export async function checkExamEligibility(studentId, courseId) {
         // 2. Initial Settings Fetch
         const settingsRef = adminDb.collection("exam_configs").doc(courseId);
         const settingsSnap = await settingsRef.get();
-        
+
         let durationMinutes = 45;
         let examCode = "";
         let startDate = null;
@@ -226,11 +226,11 @@ export async function checkExamEligibility(studentId, courseId) {
 
         // ✅ استثناء خاص
         if (exceptionDoc.exists) {
-            return { 
-                allowed: true, 
+            return {
+                allowed: true,
                 durationMinutes: durationMinutes,
                 isException: true,
-                message: "تم تفعيل استثناء خاص لك" 
+                message: "تم تفعيل استثناء خاص لك"
             };
         }
 
@@ -243,9 +243,9 @@ export async function checkExamEligibility(studentId, courseId) {
 
         // 🔥🔥 4. ضبط التوقيت الدقيق (+2 ساعة - توقيت مصر) 🔥🔥
         const now = Date.now();
-        
+
         // المعادلة: وقت السيرفر (جرينتش) + 2 ساعة = توقيت مصر الحالي
-        const TIMEZONE_OFFSET = 2 * 60 * 60 * 1000; 
+        const TIMEZONE_OFFSET = 2 * 60 * 60 * 1000;
         const serverTimeAdjusted = now + TIMEZONE_OFFSET;
 
         if (startDate) {
@@ -299,14 +299,14 @@ export async function logExamStart(data) {
 
         // حذف الاستثناء إن وجد
         const exceptionId = `${courseId}_${studentId}`;
-        await adminDb.collection('exam_exceptions').doc(exceptionId).delete().catch(() => {});
-        
+        await adminDb.collection('exam_exceptions').doc(exceptionId).delete().catch(() => { });
+
         // 🔥🔥 الجزء الجديد: إشعار للأدمن 🔥🔥
         // بنجيب بيانات الكورس عشان نعرف مين صاحب الكورس (instructorId)
         const courseDoc = await adminDb.collection('courses').doc(courseId).get();
         if (courseDoc.exists) {
             const courseData = courseDoc.data();
-            const instructorId = courseData.instructorId; 
+            const instructorId = courseData.instructorId;
             const courseName = courseData.title || courseData.name || "الكورس";
 
             if (instructorId) {
@@ -331,15 +331,13 @@ export async function getExamQuestions(courseId) {
         // 1. جلب الإعدادات اللي أنت عملتها في الـ Admin
         const settingsSnap = await adminDb.collection("exam_configs").doc(courseId).get();
         if (!settingsSnap.exists) return { success: false, message: "لم يتم ضبط إعدادات الامتحان" };
-        
+
         const settings = settingsSnap.data();
-        const { 
-            includedLectures = [], 
-            lectureCounts = {}, 
-            easyPercent = 30, 
-            mediumPercent = 50, 
-            hardPercent = 20,
-            questionCount = 20 
+        const {
+            includedLectures = [],
+            easyPercent = 30,
+            mediumPercent = 50,
+            questionCount = 20
         } = settings;
 
         // 2. جلب كل الأسئلة المتاحة للمادة من البنك
@@ -412,7 +410,7 @@ export async function submitExamResult(payload) {
 
         const resultId = `${courseId}_${studentId}_${examCode || 'General'}`;
         const questionsRef = adminDb.collection('questions_bank');
-        
+
         const snapshot = await questionsRef.where('courseId', '==', courseId).get();
         const allQuestions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
@@ -470,7 +468,7 @@ export async function submitExamResult(payload) {
 
             if (instructorId) {
                 const isCheating = submissionType === 'cheating';
-                
+
                 await sendNotification({
                     recipientId: instructorId,
                     title: isCheating ? "حالة غش 🚨" : "تسليم امتحان 🏁",
@@ -540,15 +538,15 @@ export async function enrollStudent(uid, courseId, selectedMethod) {
         // 🔔 إشعار للأدمن (التعديل هنا)
         if (courseData.instructorId) {
             // 🔥 جبنا الاسم الحقيقي للطالب هنا
-            const studentName = userData.name || "طالب غير مسجل"; 
-            
+            const studentName = userData.name || "طالب غير مسجل";
+
             await sendNotification({
                 recipientId: courseData.instructorId,
                 title: "طلب اشتراك جديد 🆕",
                 // 🔥 حطينا الاسم في الرسالة
                 body: `الطالب (${studentName}) طلب الاشتراك في كورس: ${courseData.title || courseData.name}`,
                 type: "info",
-                link: "/admin" 
+                link: "/admin"
             });
         }
 
@@ -573,7 +571,7 @@ export async function cancelCourseRequest(uid, courseId) {
 // 🏆 LEADERBOARD & UTILS (لوحة الشرف)
 // ==========================================================
 
-export async function getLeaderboard(courseId, examCode) {
+export async function getLeaderboard(courseId) {
     try {
         const resultsRef = adminDb.collection("results");
         let q = resultsRef.where("courseId", "==", courseId);
@@ -610,4 +608,58 @@ export async function checkExamCodeVisibility(examCode) {
         const docSnap = await adminDb.collection("exam_settings").doc(examCode).get();
         return docSnap.exists ? docSnap.data().isVisible : false;
     } catch (error) { return false; }
+}
+
+export async function getCourseDetails(courseId, uid) {
+    try {
+        // 1. Fetch course first (needed regardless of enrollment)
+        const docRef = adminDb.collection('courses').doc(courseId);
+        const docSnap = await docRef.get();
+        if (!docSnap.exists) return { success: false, message: "الكورس غير موجود" };
+
+        const data = docSnap.data();
+        const baseData = {
+            id: docSnap.id,
+            ...serializeData(data),
+            modules: data.modules || []
+        };
+
+        // 2. Check enrollment status
+        let isEnrolled = false;
+        if (uid) {
+            const userSnap = await adminDb.collection('users').doc(uid).get();
+            if (userSnap.exists) {
+                const enrollment = (userSnap.data().enrolledCourses || [])
+                    .find(c => c.courseId === courseId);
+                isEnrolled = !!(enrollment && enrollment.status === 'active');
+            }
+        }
+
+        // 3a. Active subscriber → return full data
+        if (isEnrolled) {
+            return { success: true, data: { ...baseData, isLocked: false } };
+        }
+
+        // 3b. Non-enrolled / pending → sanitize sensitive fields, set isLocked = true
+        const sanitizedModules = (data.modules || []).map(module => ({
+            ...module,
+            lessons: (module.lessons || []).map(lesson => ({
+                title: lesson.title,
+                type: lesson.type,
+                description: lesson.description || null,
+                duration: lesson.duration || null,
+                link: null,    // 🔒 hidden
+                examId: null,  // 🔒 hidden
+            }))
+        }));
+
+        return {
+            success: true,
+            data: { ...baseData, modules: sanitizedModules, isLocked: true }
+        };
+
+    } catch (error) {
+        console.error("Get Course Details Error:", error);
+        return { success: false, message: error.message };
+    }
 }

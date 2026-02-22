@@ -1,7 +1,6 @@
 import { Cairo } from "next/font/google";
 import "./globals.css";
-// 👇 استدعاء ملف الإشعارات (حافظنا عليه)
-import NotificationSetup from "./NotificationSetup";
+// Notification loader removed
 
 // إعداد الخط
 const cairo = Cairo({
@@ -33,11 +32,8 @@ export default function RootLayout({ children }) {
       <head>
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
       </head>
-      
+
       <body className={`${cairo.className} antialiased overflow-x-hidden`}>
-        {/* 👇 كود الإشعارات موجود هنا */}
-        <NotificationSetup />
-        
         {children}
 
         {/* 🔥🔥 2. ضفنا مكتبة الرياضيات هنا عشان تشتغل في الموقع كله */}

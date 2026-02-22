@@ -13,13 +13,13 @@ async function assertAdmin() {
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get("firebaseToken")?.value;
-    
+
     if (!token) throw new Error("غير مصرح: يجب تسجيل الدخول");
 
     // التحقق من التوكن وصلاحية الأدمن
     const decodedToken = await adminAuth.verifyIdToken(token);
     if (decodedToken.role !== 'admin') throw new Error("غير مصرح: أدمن فقط");
-    
+
     return decodedToken.uid;
   } catch (error) {
     console.error("Security Warning:", error.message);
@@ -37,7 +37,7 @@ async function syncUniversityStructure(university, college, year, section) {
   try {
     const settingsRef = adminDb.collection('settings').doc('university_structure');
     const docSnap = await settingsRef.get();
-    
+
     let structure = []; // Array based structure
     if (docSnap.exists && docSnap.data().structure) {
       structure = docSnap.data().structure;
@@ -67,7 +67,7 @@ async function syncUniversityStructure(university, college, year, section) {
     // 4. هل القسم موجود داخل السنة؟
     if (!structure[uniIndex].colleges[colIndex].years[yearIndex].sections.includes(section)) {
       structure[uniIndex].colleges[colIndex].years[yearIndex].sections.push(section);
-      
+
       // حفظ التحديث
       await settingsRef.set({ structure: structure }, { merge: true });
       console.log(`✅ Auto-synced: Added ${section} to ${university} > ${college}`);
@@ -87,7 +87,7 @@ export async function toggleSystemMode(modeName, isActive) {
     await adminDb.collection("settings").doc("system_config").set({
       [modeName]: isActive
     }, { merge: true });
-    revalidatePath("/"); 
+    revalidatePath("/");
     return { success: true, message: `تم تحديث وضع ${modeName}` };
   } catch (error) { return { success: false, error: error.message }; }
 }
@@ -119,84 +119,68 @@ export async function saveUniversityStructure(structure) {
   } catch (error) { return { success: false, error: error.message }; }
 }
 // ==========================================================
-// 🎓 3. إدارة الكورسات (Course Management)
-// ==========================================================
-// ==========================================================
 // 🎓 تعديل: إنشاء كورس مع تسجيل بصمة المحاضر (ID)
 // ==========================================================
 export async function createCourse(courseData) {
   try {
-    // 1. نجيب الـ ID بتاع المحاضر اللي بينشئ الكورس
     const adminUid = await assertAdmin();
-    
+
     const newCourse = {
       ...courseData,
       price: Number(courseData.price) || 0,
-      paymentNumber: courseData.paymentNumber || "",
-      paymentMethods: courseData.paymentMethods || "both",
-      contactPhone: courseData.contactPhone || "",
-      
-      // 🔥🔥🔥 السطر ده هو "الختم" اللي بيخلي الكورس يظهرلك 🔥🔥🔥
-      instructorId: adminUid, 
-      
+      instructorId: adminUid,
+      // تأمين حفظ الموديولات بكل محتوياتها (الوصف، عدد المشاهدات، مدة الفيديو)
+      modules: courseData.modules || [],
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
       active: true
     };
 
     const docRef = await adminDb.collection('courses').add(newCourse);
-
-    // تحديث هيكل الجامعة (لو موجود)
     if (courseData.university && courseData.college) {
-        await syncUniversityStructure(
-            courseData.university, 
-            courseData.college, 
-            courseData.year, 
-            courseData.section
-        );
+      await syncUniversityStructure(courseData.university, courseData.college, courseData.year, courseData.section);
     }
-
     revalidatePath("/admin");
-    return { success: true, id: docRef.id, message: "تم إنشاء الكورس وربطه بحسابك بنجاح ✅" };
-  } catch (error) { 
-    console.error("Create Course Error:", error);
-    return { success: false, message: error.message }; 
+    return { success: true, id: docRef.id, message: "تم إنشاء الكورس والمنهج المطور بنجاح ✅" };
+  } catch (error) {
+    return { success: false, message: error.message };
   }
 }
 
 export async function updateCourse(courseId, courseData) {
   try {
     await assertAdmin();
-    
+
     const updatedData = {
       ...courseData,
       price: Number(courseData.price) || 0,
+      // 🔥 التعديل الجديد: ضمان تحديث المنهج
+      modules: courseData.modules || [],
       updatedAt: FieldValue.serverTimestamp(),
     };
 
     await adminDb.collection('courses').doc(courseId).update(updatedData);
 
-    // تحديث الهيكل لو البيانات اتغيرت
-    if(courseData.university && courseData.college) {
-        await syncUniversityStructure(courseData.university, courseData.college, courseData.year, courseData.section);
+    if (courseData.university && courseData.college) {
+      await syncUniversityStructure(courseData.university, courseData.college, courseData.year, courseData.section);
     }
 
     revalidatePath("/admin");
     return { success: true, message: "تم تحديث الكورس" };
-  } catch (error) { 
-    return { success: false, message: error.message }; 
+  } catch (error) {
+    return { success: false, message: error.message };
   }
 }
 
 export async function deleteCourse(courseId) {
-    try {
-        await assertAdmin();
-        await adminDb.collection("courses").doc(courseId).delete();
-        revalidatePath("/admin");
-        return { success: true, message: "تم حذف الكورس" };
-    } catch (error) {
-        return { success: false, message: error.message };
-    }
+  try {
+    await assertAdmin();
+    await adminDb.collection("courses").doc(courseId).delete();
+    revalidatePath("/admin");
+    return { success: true, message: "تم حذف الكورس" };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
 }
 // ==========================================================
 // 🎓 تعديل هام: جلب الكورسات الخاصة بالمحاضر فقط
@@ -208,8 +192,8 @@ export async function getInstructorCourses() {
 
     // 2. تحديد الإيميلات المسموح لها برؤية كل شيء (الماستر أدمن)
     // استبدل الإيميل ده بإيميلك الشخصي لو عاوز تشوف كل حاجة
-    const MASTER_ADMINS = ["admin@tamam.com"]; 
-    
+    const MASTER_ADMINS = ["admin@tamam.com"];
+
     // نجيب بيانات اليوزر عشان نتأكد من الإيميل
     const userRecord = await adminAuth.getUser(adminUid);
     const isMaster = MASTER_ADMINS.includes(userRecord.email);
@@ -218,28 +202,29 @@ export async function getInstructorCourses() {
 
     // 🔥 الشرط الجذري: لو مش "ماستر أدمن"، هات كورساتي أنا بس
     if (!isMaster) {
-        query = query.where('instructorId', '==', adminUid);
+      query = query.where('instructorId', '==', adminUid);
     }
 
     // ترتيب الكورسات (الأحدث فالأقدم)
-    const snapshot = await query.orderBy("createdAt", "desc").get();
-    
+    const snapshot = await query.orderBy("createdAt", "desc").limit(20).get(); // بنجيب أحدث 20 كورس بس للسرعة
+
+
     const courses = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-            ...data,
-            id: doc.id,
-            // تحويل التواريخ لنصوص عشان ميعملش مشاكل في الموقع
-            createdAt: data.createdAt?.toDate?.().toISOString() || null,
-            updatedAt: data.updatedAt?.toDate?.().toISOString() || null,
-            startDate: data.startDate || "",
-        };
+      const data = doc.data();
+      return {
+        ...data,
+        id: doc.id,
+        // تحويل التواريخ لنصوص عشان ميعملش مشاكل في الموقع
+        createdAt: data.createdAt?.toDate?.().toISOString() || null,
+        updatedAt: data.updatedAt?.toDate?.().toISOString() || null,
+        startDate: data.startDate || "",
+      };
     });
 
     return { success: true, data: courses };
-  } catch (error) { 
-      console.error("Error fetching courses:", error);
-      return { success: false, message: error.message }; 
+  } catch (error) {
+    console.error("Error fetching courses:", error);
+    return { success: false, message: error.message };
   }
 }
 // ==========================================================
@@ -252,8 +237,8 @@ export async function toggleUserLock(uid, shouldLock) {
     await adminAuth.updateUser(uid, { disabled: shouldLock });
     // 2. تحديث الحالة في DB
     await adminDb.collection('users').doc(uid).update({ isLocked: shouldLock });
-    
-    revalidatePath("/admin");
+
+    revalidatePath("/", "layout");
     return { success: true, message: shouldLock ? "تم التجميد 🔒" : "تم التفعيل 🔓" };
   } catch (error) { return { success: false, error: error.message }; }
 }
@@ -263,7 +248,7 @@ export async function deleteStudentAccount(uid) {
     await assertAdmin();
     await adminAuth.deleteUser(uid);
     await adminDb.collection('users').doc(uid).delete();
-    revalidatePath("/admin");
+    revalidatePath("/", "layout");
     return { success: true, message: "تم حذف الطالب نهائياً 🗑️" };
   } catch (error) { return { success: false, message: error.message }; }
 }
@@ -273,49 +258,49 @@ export async function updateCourseStatus(studentUid, courseId, action) {
     await assertAdmin();
     const userRef = adminDb.collection('users').doc(studentUid);
     const userSnap = await userRef.get();
-    
+
     if (!userSnap.exists) throw new Error("المستخدم غير موجود");
-    
+
     let courses = userSnap.data().enrolledCourses || [];
 
     if (action === 'remove' || action === 'rejected') {
-        const newCourses = courses.filter(c => c.courseId !== courseId);
-        await userRef.update({ enrolledCourses: newCourses });
+      const newCourses = courses.filter(c => c.courseId !== courseId);
+      await userRef.update({ enrolledCourses: newCourses });
     } else {
-        const newStatus = action === 'active' ? 'active' : action; 
-        const isPaid = action === 'active'; 
+      const newStatus = action === 'active' ? 'active' : action;
+      const isPaid = action === 'active';
 
-        const courseIndex = courses.findIndex(c => c.courseId === courseId);
-        if (courseIndex !== -1) {
-            courses[courseIndex] = {
-                ...courses[courseIndex],
-                status: newStatus,
-                paid: isPaid
-            };
-            await userRef.update({ enrolledCourses: courses });
+      const courseIndex = courses.findIndex(c => c.courseId === courseId);
+      if (courseIndex !== -1) {
+        courses[courseIndex] = {
+          ...courses[courseIndex],
+          status: newStatus,
+          paid: isPaid
+        };
+        await userRef.update({ enrolledCourses: courses });
 
-            // 🔔 إشعار للطالب بتفعيل الكورس
-            if (newStatus === 'active') {
-                // 1. نجيب بيانات الكورس عشان الاسم
-                const courseDoc = await adminDb.collection('courses').doc(courseId).get();
-                // 🔥 عرفنا المتغير هنا بشكل صريح عشان ميعملش مشاكل
-                const courseName = courseDoc.exists ? (courseDoc.data().name || courseDoc.data().title) : "الكورس";
+        // 🔔 إشعار للطالب بتفعيل الكورس
+        if (newStatus === 'active') {
+          // 1. نجيب بيانات الكورس عشان الاسم
+          const courseDoc = await adminDb.collection('courses').doc(courseId).get();
+          // 🔥 عرفنا المتغير هنا بشكل صريح عشان ميعملش مشاكل
+          const courseName = courseDoc.exists ? (courseDoc.data().name || courseDoc.data().title) : "الكورس";
 
-                await sendNotification({
-                    recipientId: studentUid,
-                    title: "تم تفعيل الاشتراك ✅",
-                    body: `مبروك! تم تفعيل اشتراكك بنجاح في: ${courseName}. ابدأ المذاكرة الآن!`,
-                    type: "success",
-                    link: "/dashboard"
-                });
-            }
+          await sendNotification({
+            recipientId: studentUid,
+            title: "تم تفعيل الاشتراك ✅",
+            body: `مبروك! تم تفعيل اشتراكك بنجاح في: ${courseName}. ابدأ المذاكرة الآن!`,
+            type: "success",
+            link: "/dashboard"
+          });
         }
+      }
     }
-    revalidatePath("/admin");
+    revalidatePath("/", "layout");
     return { success: true };
-  } catch (error) { 
-      console.error("Update Error:", error); // عشان نشوف الخطأ في الكونسول لو حصل
-      return { success: false, error: error.message }; 
+  } catch (error) {
+    console.error("Update Error:", error); // عشان نشوف الخطأ في الكونسول لو حصل
+    return { success: false, error: error.message };
   }
 }
 export async function adminResetPassword(uid, newPassword) {
@@ -327,13 +312,13 @@ export async function adminResetPassword(uid, newPassword) {
 }
 
 export async function toggleSpecialAccess(studentId, courseId, allow) {
-    try {
-        await assertAdmin();
-        const id = `${courseId}_${studentId}`;
-        if (allow) await adminDb.collection("special_access").doc(id).set({ allow: true });
-        else await adminDb.collection("special_access").doc(id).delete();
-        return { success: true };
-    } catch (error) { return { success: false, message: error.message }; }
+  try {
+    await assertAdmin();
+    const id = `${courseId}_${studentId}`;
+    if (allow) await adminDb.collection("special_access").doc(id).set({ allow: true });
+    else await adminDb.collection("special_access").doc(id).delete();
+    return { success: true };
+  } catch (error) { return { success: false, message: error.message }; }
 }
 
 // ==========================================================
@@ -348,193 +333,147 @@ export async function toggleExamCodeVisibility(examCode, isVisible) {
 }
 
 export async function resetLeaderboard(courseId) {
-    try {
-        await assertAdmin();
-        const q = adminDb.collection('results').where('courseId', '==', courseId);
-        const snapshot = await q.get();
-        const batch = adminDb.batch();
-        snapshot.docs.forEach((doc) => batch.delete(doc.ref));
-        await batch.commit();
-        revalidatePath("/admin");
-        return { success: true, message: "✅ تم تصفير النتائج بنجاح!" };
-    } catch (error) { return { success: false, message: error.message }; }
+  try {
+    await assertAdmin();
+    const q = adminDb.collection('results').where('courseId', '==', courseId);
+    const snapshot = await q.get();
+    const batch = adminDb.batch();
+    snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+    await batch.commit();
+    revalidatePath("/admin");
+    return { success: true, message: "✅ تم تصفير النتائج بنجاح!" };
+  } catch (error) { return { success: false, message: error.message }; }
 }
 
 export async function deleteResult(resultId) {
-    try {
-        await assertAdmin();
-        await adminDb.collection("results").doc(resultId).delete();
-        revalidatePath("/admin");
-        return { success: true };
-    } catch (error) { return { success: false, message: error.message }; }
+  try {
+    await assertAdmin();
+    await adminDb.collection("results").doc(resultId).delete();
+    revalidatePath("/admin");
+    return { success: true };
+  } catch (error) { return { success: false, message: error.message }; }
 }
 
 export async function getLeaderboard(courseId) {
-    try {
-        const resultsRef = adminDb.collection("results");
-        const q = resultsRef.where("courseId", "==", courseId);
-        const snapshot = await q.get();
-        
-        let data = snapshot.docs.map(doc => {
-            const d = doc.data();
-            return {
-                ...d,
-                id: doc.id,
-                startTime: d.startTime?.toDate().toISOString() || null,
-                endTime: d.endTime?.toDate().toISOString() || null,
-                submittedAt: d.submittedAt?.toDate().toISOString() || null,
-            };
-        });
-        
-        // ترتيب التوب 50
-        data = data.sort((a, b) => b.score - a.score).slice(0, 50);
-        return { success: true, data: data };
-    } catch (error) { return { success: false, message: error.message }; }
+  try {
+    // الترتيب بيحصل في السيرفر (أسرع بـ 100 مرة) وبناخد أول 50 بس
+    const snapshot = await adminDb.collection("results")
+      .where("courseId", "==", courseId)
+      .orderBy("score", "desc")
+      .limit(50)
+      .get();
+
+    const data = snapshot.docs.map(doc => {
+      const d = doc.data();
+      return {
+        ...d,
+        id: doc.id,
+        submittedAt: d.submittedAt?.toDate().toISOString() || null,
+      };
+    });
+
+    return { success: true, data: data };
+  } catch (error) {
+    console.error("Leaderboard Error:", error);
+    return { success: false, message: error.message };
+  }
 }
+// 📝 حفظ إعدادات امتحان (تحديث: دعم الـ Unique ID والشروط المتقدمة)
+export const saveCourseSettings = saveExamConfig;
+export async function saveExamConfig(examId, settingsData) {
+  try {
+    await assertAdmin();
 
-export async function saveCourseSettings(courseId, settingsData) {
-    try {
-        await assertAdmin();
-        
-        // 1. حفظ الإعدادات في الداتابيز (تحديث إعدادات الكورس)
-        await adminDb.collection("exam_configs").doc(courseId).set(settingsData);
+    // حفظ الإعدادات باستخدام الـ examId (كود الامتحان) كـ مفتاح فريد
+    await adminDb.collection("exam_configs").doc(examId).set({
+      ...settingsData,
+      passScore: Number(settingsData.passScore) || 60, // درجة النجاح الافتراضية
+      maxAttempts: Number(settingsData.maxAttempts) || 1, // عدد المحاولات
+      duration: Number(settingsData.duration) || 30, // المدة بالدقائق
+      updatedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
 
-        // 🔥🔥 التعديل الهام جداً (Fix) 🔥🔥
-        // لو في كود امتحان، لازم نروح لجدول الأكواد ونخليه مرئي (Visible)
-        if (settingsData.examCode) {
-            await adminDb.collection("exam_settings").doc(settingsData.examCode).set({
-                isVisible: true, // 👈 ده اللي كان ناقص وبيخلي الامتحان يظهر للطالب
-                courseId: courseId, // عشان نعرف الكود ده تبع انهي كورس
-                createdAt: FieldValue.serverTimestamp()
-            }, { merge: true });
-        }
+    // تفعيل الكود في جدول الأكواد
+    await adminDb.collection("exam_settings").doc(examId).set({
+      isVisible: true,
+      courseId: settingsData.courseId,
+      updatedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
 
-        // 👇👇 بداية كود الإشعار 👇👇
-        // لو الأدمن مفعل خيار "إرسال إشعار" أو لو ده امتحان جديد بكود
-        if (settingsData.examCode) {
-            
-            // أ. نجيب اسم الكورس
-            const courseDoc = await adminDb.collection('courses').doc(courseId).get();
-            const courseName = courseDoc.exists ? (courseDoc.data().name || courseDoc.data().title) : "المادة";
-
-            // ب. نجيب الطلاب المشتركين في الكورس ده بس (Active)
-            const usersSnap = await adminDb.collection('users')
-                .where('role', '==', 'student')
-                .get();
-
-            const batch = adminDb.batch();
-            let count = 0;
-
-            usersSnap.docs.forEach(doc => {
-                const userData = doc.data();
-                const enrolled = userData.enrolledCourses || [];
-                
-                // هل الطالب مشترك في الكورس ده وحسابه مفعل؟
-                const isEnrolledActive = enrolled.some(c => c.courseId === courseId && c.status === 'active');
-
-                if (isEnrolledActive) {
-                    const ref = adminDb.collection('notifications').doc();
-                    
-                    // تكوين رسالة التفاصيل
-                    const details = [
-                        `الكود: ${settingsData.examCode}`,
-                        settingsData.examDuration ? `المدة: ${settingsData.examDuration} دقيقة` : '',
-                        settingsData.startDate ? `البدء: ${new Date(settingsData.startDate).toLocaleDateString('ar-EG')}` : ''
-                    ].filter(Boolean).join(' | ');
-
-                    batch.set(ref, {
-                        recipientId: doc.id,
-                        title: `امتحان جديد: ${courseName} 📝`,
-                        body: `تم تحديد موعد امتحان جديد.\n${details}\nاستعد جيداً!`,
-                        type: "exam", // ده هيظهر أيقونة الامتحان
-                        link: `/exam/${courseId}`, // يوديه لصفحة الامتحان علطول
-                        read: false,
-                        createdAt: FieldValue.serverTimestamp()
-                    });
-                    count++;
-                }
-            });
-
-            if (count > 0) await batch.commit();
-        }
-        // 👆👆 نهاية كود الإشعار 👆👆
-
-        return { success: true, message: "تم الحفظ وتفعيل الامتحان للطلاب ✅" };
-    } catch (error) { 
-        console.error(error);
-        return { success: false, message: error.message }; 
-    }
+    return { success: true, message: "تم حفظ إعدادات الامتحان وتفعيله بنجاح ✅" };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
 }
-
 export async function getCourseSettings(courseId) {
-    try {
-        await assertAdmin();
-        const docSnap = await adminDb.collection("exam_configs").doc(courseId).get();
-        return { success: true, data: docSnap.exists ? docSnap.data() : null };
-    } catch (error) { return { success: false, message: error.message }; }
+  try {
+    await assertAdmin();
+    const docSnap = await adminDb.collection("exam_configs").doc(courseId).get();
+    return { success: true, data: docSnap.exists ? docSnap.data() : null };
+  } catch (error) { return { success: false, message: error.message }; }
 }
 
 export async function getUniqueLectures(courseId) {
-    try {
-        const snapshot = await adminDb.collection('questions_bank').where('courseId', '==', courseId).get();
-        const stats = {}; // هنخزن هنا الإحصائيات
-        
-        snapshot.docs.forEach(doc => {
-            const q = doc.data();
-            const lec = q.lecture || "بدون عنوان";
-            const diff = (q.difficulty || q.level || 'easy').toLowerCase();
-            
-            if (!stats[lec]) stats[lec] = { easy: 0, medium: 0, hard: 0, total: 0 };
-            
-            if (diff.includes('easy') || diff.includes('سهل')) stats[lec].easy++;
-            else if (diff.includes('medium') || diff.includes('متوسط')) stats[lec].medium++;
-            else if (diff.includes('hard') || diff.includes('صعب')) stats[lec].hard++;
-            
-            stats[lec].total++;
-        });
+  try {
+    const snapshot = await adminDb.collection('questions_bank').where('courseId', '==', courseId).get();
+    const stats = {}; // هنخزن هنا الإحصائيات
 
-        // هنرجع أسامي المحاضرات ومعاها الداتا بتاعتها
-        return { 
-            success: true, 
-            data: Object.keys(stats), 
-            stats: stats // 👈 دي اللي هنستخدمها للتأكد
-        };
-    } catch (e) { return { success: false, data: [], stats: {} }; }
+    snapshot.docs.forEach(doc => {
+      const q = doc.data();
+      const lec = q.lecture || "بدون عنوان";
+      const diff = (q.difficulty || q.level || 'easy').toLowerCase();
+
+      if (!stats[lec]) stats[lec] = { easy: 0, medium: 0, hard: 0, total: 0 };
+
+      if (diff.includes('easy') || diff.includes('سهل')) stats[lec].easy++;
+      else if (diff.includes('medium') || diff.includes('متوسط')) stats[lec].medium++;
+      else if (diff.includes('hard') || diff.includes('صعب')) stats[lec].hard++;
+
+      stats[lec].total++;
+    });
+
+    // هنرجع أسامي المحاضرات ومعاها الداتا بتاعتها
+    return {
+      success: true,
+      data: Object.keys(stats),
+      stats: stats // 👈 دي اللي هنستخدمها للتأكد
+    };
+  } catch (e) { return { success: false, data: [], stats: {} }; }
 }
 
 // ==========================================================
 // 📚 6. إدارة المحتوى (Materials)
 // ==========================================================
 export async function addMaterialToCourse(courseId, materialData) {
-    try {
-        await assertAdmin();
-        await adminDb.collection("courses").doc(courseId).update({
-            materials: FieldValue.arrayUnion(materialData)
-        });
-        revalidatePath("/admin");
-        return { success: true };
-    } catch (e) { return { success: false, message: e.message }; }
+  try {
+    await assertAdmin();
+    await adminDb.collection("courses").doc(courseId).update({
+      materials: FieldValue.arrayUnion(materialData)
+    });
+    revalidatePath("/admin");
+    return { success: true };
+  } catch (e) { return { success: false, message: e.message }; }
 }
 
 export async function getCourseMaterials(courseId) {
-    try {
-        const docSnap = await adminDb.collection("courses").doc(courseId).get();
-        if(docSnap.exists) {
-            return { success: true, data: docSnap.data().materials || [] };
-        }
-        return { success: false, data: [] };
-    } catch(e) { return { success: false, data: [] }; }
+  try {
+    const docSnap = await adminDb.collection("courses").doc(courseId).get();
+    if (docSnap.exists) {
+      return { success: true, data: docSnap.data().materials || [] };
+    }
+    return { success: false, data: [] };
+  } catch (e) { return { success: false, data: [] }; }
 }
 
 export async function deleteMaterialFromCourse(courseId, materialToDelete) {
-    try {
-        await assertAdmin();
-        await adminDb.collection("courses").doc(courseId).update({
-            materials: FieldValue.arrayRemove(materialToDelete)
-        });
-        revalidatePath("/admin");
-        return { success: true };
-    } catch(e) { return { success: false }; }
+  try {
+    await assertAdmin();
+    await adminDb.collection("courses").doc(courseId).update({
+      materials: FieldValue.arrayRemove(materialToDelete)
+    });
+    revalidatePath("/admin");
+    return { success: true };
+  } catch (e) { return { success: false }; }
 }
 
 // ==========================================================
@@ -542,101 +481,97 @@ export async function deleteMaterialFromCourse(courseId, materialToDelete) {
 // ==========================================================
 // استبدل دالة addAnnouncement القديمة بدي
 export async function addAnnouncement(text, targetCourseId = null, targetCourseName = null) {
-    try {
-        await assertAdmin();
-        
-        // 1. حفظ الإعلان في الداتابيز (بالبيانات الجديدة)
-        await adminDb.collection("announcements").add({ 
-            text, 
-            targetCourseId: targetCourseId, // ده اللي بيخلي العلامة زرقاء
-            targetCourseName: targetCourseName, // ده الاسم اللي بيظهر
-            createdAt: FieldValue.serverTimestamp() 
-        });
+  try {
+    await assertAdmin();
 
-        revalidatePath("/admin");
+    // 1. حفظ الإعلان في الداتابيز (بالبيانات الجديدة)
+    await adminDb.collection("announcements").add({
+      text,
+      targetCourseId: targetCourseId, // ده اللي بيخلي العلامة زرقاء
+      targetCourseName: targetCourseName, // ده الاسم اللي بيظهر
+      createdAt: FieldValue.serverTimestamp()
+    });
 
-        // 2. إرسال الإشعار للطلاب المستهدفين فقط
-        let query = adminDb.collection('users').where('role', '==', 'student');
-        
-        // لو الإعلان عام، بنجيب عينة (للسرعة)، لو مخصص بنجيب الكل ونفلتر
-        if (!targetCourseId) {
-             query = query.limit(100);
-        }
-        
-        const usersSnap = await query.get();
-        const batch = adminDb.batch();
-        let count = 0;
+    revalidatePath("/admin");
 
-        usersSnap.docs.forEach(doc => {
-            const userData = doc.data();
-            let shouldSend = false;
+    // 2. إرسال الإشعار للطلاب المستهدفين فقط
+    let query = adminDb.collection('users').where('role', '==', 'student');
 
-            if (!targetCourseId) {
-                shouldSend = true; // إعلان عام للكل
-            } else {
-                const enrolled = userData.enrolledCourses || [];
-                // هل الطالب مشترك في الكورس ده (active)؟
-                if (enrolled.some(c => c.courseId === targetCourseId && c.status === 'active')) {
-                    shouldSend = true;
-                }
-            }
-
-            if (shouldSend && count < 450) {
-                const ref = adminDb.collection('notifications').doc();
-                batch.set(ref, {
-                    recipientId: doc.id,
-                    title: targetCourseName ? `📢 إعلان: ${targetCourseName}` : "📢 إعلان عام هام",
-                    body: text.substring(0, 100) + (text.length > 100 ? "..." : ""),
-                    type: "warning",
-                    read: false,
-                    createdAt: FieldValue.serverTimestamp()
-                });
-                count++;
-            }
-        });
-
-        if (count > 0) await batch.commit();
-
-        return { success: true };
-    } catch (e) { 
-        console.error(e);
-        return { success: false }; 
+    // لو الإعلان عام، بنجيب عينة (للسرعة)، لو مخصص بنجيب الكل ونفلتر
+    if (!targetCourseId) {
+      query = query.limit(100);
     }
+
+    const usersSnap = await query.get();
+    const usersDocs = usersSnap.docs;
+    let i = 0;
+    const batchSize = 450; // حجم المجموعة الواحدة
+
+    while (i < usersDocs.length) {
+      const batch = adminDb.batch();
+      const currentBatchDocs = usersDocs.slice(i, i + batchSize);
+
+      currentBatchDocs.forEach(doc => {
+        const userData = doc.data();
+        const enrolled = userData.enrolledCourses || [];
+        const isTargeted = !targetCourseId || enrolled.some(c => c.courseId === targetCourseId && c.status === 'active');
+
+        if (isTargeted) {
+          const ref = adminDb.collection('notifications').doc();
+          batch.set(ref, {
+            recipientId: doc.id,
+            title: targetCourseName ? `📢 إعلان: ${targetCourseName}` : "📢 إعلان عام هام",
+            body: text.substring(0, 100),
+            type: "warning",
+            read: false,
+            createdAt: FieldValue.serverTimestamp()
+          });
+        }
+      });
+
+      await batch.commit(); // بيبعت المجموعة دي ويخش على اللي بعدها
+      i += batchSize;
+    }
+    return { success: true };
+  } catch (e) {
+    console.error(e);
+    return { success: false };
+  }
 }
 export async function getAnnouncements() {
-    try {
-        // هنجيب آخر 20 إعلان مثلاً
-        const q = adminDb.collection("announcements").orderBy("createdAt", "desc").limit(20);
-        const snap = await q.get();
-        
-        const data = snap.docs.map(doc => ({
-            id: doc.id,
-            text: doc.data().text,
-            // 🔥 التعديل هنا: لازم نرجع البيانات دي عشان الواجهة تعرضها صح
-            targetCourseId: doc.data().targetCourseId || null,
-            targetCourseName: doc.data().targetCourseName || null,
-            // ----------------------------------------------------
-            createdAt: doc.data().createdAt?.toDate().toISOString() || null
-        }));
-        
-        return { success: true, data };
-    } catch (e) { return { success: false, data: [] }; }
+  try {
+    // هنجيب آخر 20 إعلان مثلاً
+    const q = adminDb.collection("announcements").orderBy("createdAt", "desc").limit(20);
+    const snap = await q.get();
+
+    const data = snap.docs.map(doc => ({
+      id: doc.id,
+      text: doc.data().text,
+      // 🔥 التعديل هنا: لازم نرجع البيانات دي عشان الواجهة تعرضها صح
+      targetCourseId: doc.data().targetCourseId || null,
+      targetCourseName: doc.data().targetCourseName || null,
+      // ----------------------------------------------------
+      createdAt: doc.data().createdAt?.toDate().toISOString() || null
+    }));
+
+    return { success: true, data };
+  } catch (e) { return { success: false, data: [] }; }
 }
 
 export async function deleteAnnouncement(id) {
-    try {
-        console.log("جاري حذف الإعلان رقم:", id); // 👈 عشان نتأكد إن الـ ID وصل
-        await assertAdmin();
-        
-        await adminDb.collection("announcements").doc(id).delete();
-        
-        console.log("تم الحذف بنجاح ✅");
-        revalidatePath("/admin");
-        return { success: true };
-    } catch (e) { 
-        console.error("خطأ في الحذف ❌:", e); // 👈 ده هيظهرلك سبب المشكلة في التيرمينال
-        return { success: false, error: e.message }; 
-    }
+  try {
+    console.log("جاري حذف الإعلان رقم:", id); // 👈 عشان نتأكد إن الـ ID وصل
+    await assertAdmin();
+
+    await adminDb.collection("announcements").doc(id).delete();
+
+    console.log("تم الحذف بنجاح ✅");
+    revalidatePath("/admin");
+    return { success: true };
+  } catch (e) {
+    console.error("خطأ في الحذف ❌:", e); // 👈 ده هيظهرلك سبب المشكلة في التيرمينال
+    return { success: false, error: e.message };
+  }
 }
 
 // ==========================================================
@@ -648,7 +583,7 @@ export async function batchAddQuestions(courseId, questionsArray) {
   try {
     await assertAdmin();
     const batch = adminDb.batch();
-    
+
     questionsArray.forEach(q => {
       const docRef = adminDb.collection("questions_bank").doc();
       batch.set(docRef, {
@@ -673,7 +608,7 @@ export async function getQuestionsForCourse(courseId) {
     // مش محتاجين assertAdmin هنا عادي، أو ممكن تضيفها لو تحب
     const q = adminDb.collection('questions_bank').where('courseId', '==', courseId);
     const snap = await q.get();
-    
+
     const questions = snap.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
@@ -696,7 +631,7 @@ export async function copyQuestionsToCourse(questionIds, targetCourseId) {
     // لازم نقرأ الأسئلة الأول عشان ننسخ بياناتها
     // ملاحظة: فايربيس معندهاش "WHERE ID IN [...]" لأكثر من 30 عنصر
     // عشان كده هنعمل Loop قراءة (مقبول في عمليات الأدمن المحدودة)
-    
+
     const readPromises = questionIds.map(id => adminDb.collection("questions_bank").doc(id).get());
     const snapshots = await Promise.all(readPromises);
 
@@ -742,70 +677,96 @@ export async function batchDeleteQuestions(questionIds) {
 // 🚨 9. استثناءات الامتحانات (Exam Exceptions) - NEW
 // ==========================================================
 export async function grantExamException(studentId, courseId) {
-    try {
-        await assertAdmin();
-        // تكوين الـ ID بنفس الطريقة اللي كود الطالب بيفهمها
-        const exceptionId = `${courseId}_${studentId}`;
-        
-        await adminDb.collection('exam_exceptions').doc(exceptionId).set({
-            createdAt: FieldValue.serverTimestamp(),
-            active: true,
-            grantedBy: 'admin_action'
-        });
+  try {
+    await assertAdmin();
+    // تكوين الـ ID بنفس الطريقة اللي كود الطالب بيفهمها
+    const exceptionId = `${courseId}_${studentId}`;
 
-        return { success: true, message: "تم منح استثناء للطالب، يمكنه الدخول الآن 🔓" };
-    } catch (error) { 
-        return { success: false, message: error.message }; 
-    }
+    await adminDb.collection('exam_exceptions').doc(exceptionId).set({
+      createdAt: FieldValue.serverTimestamp(),
+      active: true,
+      grantedBy: 'admin_action'
+    });
+
+    return { success: true, message: "تم منح استثناء للطالب، يمكنه الدخول الآن 🔓" };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
 }
 
 // ==========================================================
 // 📊 10. إحصائيات الطالب (Student Stats) - NEW
 // ==========================================================
 export async function getStudentStats(studentId) {
-    try {
-        await assertAdmin();
+  try {
+    await assertAdmin();
 
-        // 1. جلب بيانات الطالب (لآخر ظهور)
-        const userDoc = await adminDb.collection('users').doc(studentId).get();
-        const userData = userDoc.exists ? userDoc.data() : {};
+    // 1. جلب بيانات الطالب (لآخر ظهور)
+    const userDoc = await adminDb.collection('users').doc(studentId).get();
+    const userData = userDoc.exists ? userDoc.data() : {};
 
-        // 2. جلب نتائج الامتحانات
-        const resultsSnap = await adminDb.collection('results')
-            .where('studentId', '==', studentId)
-            .get();
+    // 2. جلب نتائج الامتحانات
+    const resultsSnap = await adminDb.collection('results')
+      .where('studentId', '==', studentId)
+      .get();
 
-        let totalExams = 0;
-        let totalScore = 0; // مجموع درجات الطالب
-        let totalMaxScore = 0; // مجموع الدرجات النهائية للامتحانات
+    let totalExams = 0;
+    let totalScore = 0; // مجموع درجات الطالب
+    let totalMaxScore = 0; // مجموع الدرجات النهائية للامتحانات
 
-        resultsSnap.docs.forEach(doc => {
-            const data = doc.data();
-            // تجاهل الامتحانات اللي لسه شغالة (Running)
-            if (data.status && data.status.includes('Running')) return;
+    resultsSnap.docs.forEach(doc => {
+      const data = doc.data();
+      // تجاهل الامتحانات اللي لسه شغالة (Running)
+      if (data.status && data.status.includes('Running')) return;
 
-            totalExams++;
-            totalScore += (Number(data.score) || 0);
-            totalMaxScore += (Number(data.total) || 0);
-        });
+      totalExams++;
+      totalScore += (Number(data.score) || 0);
+      totalMaxScore += (Number(data.total) || 0);
+    });
 
-        // حساب النسبة المئوية العامة للطالب
-        const averagePercent = totalMaxScore > 0 
-            ? ((totalScore / totalMaxScore) * 100).toFixed(1) 
-            : "0";
+    // حساب النسبة المئوية العامة للطالب
+    const averagePercent = totalMaxScore > 0
+      ? ((totalScore / totalMaxScore) * 100).toFixed(1)
+      : "0";
 
-        return {
-            success: true,
-            stats: {
-                totalExams,
-                averagePercent: averagePercent + "%",
-                lastLogin: userData.lastLogin ? userData.lastLogin.toDate().toISOString() : null,
-                joinedAt: userData.createdAt ? userData.createdAt.toDate().toISOString() : null
-            }
-        };
+    return {
+      success: true,
+      stats: {
+        totalExams,
+        averagePercent: averagePercent + "%",
+        lastLogin: userData.lastLogin ? userData.lastLogin.toDate().toISOString() : null,
+        joinedAt: userData.createdAt ? userData.createdAt.toDate().toISOString() : null
+      }
+    };
 
-    } catch (error) {
-        console.error("Stats Error:", error);
-        return { success: false, message: error.message };
-    }
+  } catch (error) {
+    console.error("Stats Error:", error);
+    return { success: false, message: error.message };
+  }
+}
+
+// 🧠 جلب إحصائيات مستويات الصعوبة لبنك الأسئلة
+export async function getQuestionDifficultyStats(courseId) {
+  try {
+    await assertAdmin();
+    const snapshot = await adminDb.collection('questions_bank')
+      .where('courseId', '==', courseId)
+      .get();
+
+    let stats = { easy: 0, medium: 0, hard: 0, total: 0 };
+
+    snapshot.docs.forEach(doc => {
+      const q = doc.data();
+      const level = (q.difficulty || q.level || 'easy').toLowerCase();
+
+      if (level.includes('easy') || level.includes('سهل')) stats.easy++;
+      else if (level.includes('medium') || level.includes('متوسط')) stats.medium++;
+      else if (level.includes('hard') || level.includes('صعب')) stats.hard++;
+      stats.total++;
+    });
+
+    return { success: true, stats };
+  } catch (e) {
+    return { success: false, stats: { easy: 0, medium: 0, hard: 0, total: 0 } };
+  }
 }

@@ -4,41 +4,50 @@ import type { NextRequest } from 'next/server';
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   
-  // 1. قراءة "البطاقة" (Token) من الكوكيز
+  // 1. قراءة التوكن والرتبة من الكوكيز
   const token = request.cookies.get('firebaseToken')?.value;
+  const userRole = request.cookies.get('userRole')?.value; // هنضيف دي في ملف الـ Auth الجاي
 
-  // 2. تحديد المسارات المحمية
+  // 2. تحديد المسارات
   const isAdminRoute = pathname.startsWith('/admin');
-  const isStudentRoute = pathname.startsWith('/dashboard') || pathname.startsWith('/exam');
+  const isStudentRoute = pathname.startsWith('/dashboard') || pathname.startsWith('/exam') || pathname.startsWith('/study');
   const isAuthRoute = pathname === '/login' || pathname === '/signup';
 
-  // 🔴 الحالة الأولى: شخص بيحاول يدخل صفحة أدمن أو طالب وهو مش مسجل دخول
+  // 🔴 الحالة الأولى: غير مسجل دخول وبيحاول يدخل منطقة محمية
   if ((isAdminRoute || isStudentRoute) && !token) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/login';
-    // بنحفظ المكان اللي كان رايحه عشان نرجعه ليه بعد ما يسجل دخول
-    url.searchParams.set('redirect', pathname);
-    return NextResponse.redirect(url);
+    const loginUrl = new URL('/login', request.url);
+    loginUrl.searchParams.set('redirect', pathname);
+    return NextResponse.redirect(loginUrl);
   }
 
-  // 🟢 الحالة الثانية: شخص مسجل دخول بالفعل وبيحاول يروح لصفحة Login
+  // 🟡 الحالة الثانية: مسجل دخول (طالب) وبيحاول يدخل صفحات الأدمن
+  if (isAdminRoute && userRole === 'student') {
+    return NextResponse.redirect(new URL('/dashboard', request.url));
+  }
+
+  // 🔵 الحالة الثالثة: مسجل دخول (أدمن) وبيحاول يدخل صفحات الطالب
+  if (isStudentRoute && userRole === 'admin') {
+    return NextResponse.redirect(new URL('/admin', request.url));
+  }
+
+  // 🟢 الحالة الرابعة: مسجل دخول بالفعل وبيحاول يروح لصفحة اللوجن
   if (isAuthRoute && token) {
-    // هنا ممكن نوجهه للوحة التحكم بتاعته (اختياري)
-    // حالياً هنسيبه يدخل عادي عشان لو عايز يسجل خروج أو يغير حساب
-    return NextResponse.next();
+    // توجيهه حسب رتبته بدل ما يفضل في صفحة اللوجن
+    const destination = userRole === 'admin' ? '/admin' : '/dashboard';
+    return NextResponse.redirect(new URL(destination, request.url));
   }
 
-  // السماح بالمرور
   return NextResponse.next();
 }
 
-// تحديد الصفحات اللي "البواب" هيقف عليها
+// تحديد الصفحات اللي الميدل وير هيراقبها
 export const config = {
   matcher: [
-    '/admin/:path*',      // حماية كل صفحات الأدمن
-    '/dashboard/:path*',  // حماية لوحة الطالب
-    '/exam/:path*',       // حماية الامتحانات
-    '/login',             // مراقبة صفحة الدخول
-    '/signup',            // مراقبة صفحة التسجيل
+    '/admin/:path*',
+    '/dashboard/:path*',
+    '/exam/:path*',
+    '/study/:path*',
+    '/login',
+    '/signup',
   ],
 };

@@ -2,7 +2,8 @@
 import React from 'react';
 import { signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
-import Link from 'next/link'; // 👈 1. ضفنا دي
+import Link from 'next/link';
+import { logout } from '@/app/actions/auth';
 
 // الأيقونات (زي ما هي)
 const Icons = {
@@ -17,98 +18,126 @@ const Icons = {
     Logout: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>,
     Bolt: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>,
 };
-
 export default function Sidebar({ activeTab, setActiveTab, isSidebarOpen, adminData, pendingCount = 0, onCloseMobile }) {
-  const isDarkMode = typeof window !== 'undefined' ? localStorage.getItem('theme') === 'dark' : true;
-  const theme = {
-    sidebar: isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-gray-200',
-    textSec: isDarkMode ? 'text-slate-400' : 'text-slate-500',
-    textMain: isDarkMode ? 'text-white' : 'text-slate-900',
-    hover: isDarkMode ? 'hover:bg-slate-800' : 'hover:bg-gray-100',
-    accent: 'bg-indigo-600 hover:bg-indigo-700 text-white',
-    card: isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-gray-200',
-  };
+    const isDarkMode = typeof window !== 'undefined' ? localStorage.getItem('theme') === 'dark' : true;
+    
+    const theme = {
+        sidebar: isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-gray-200',
+        textSec: isDarkMode ? 'text-slate-400' : 'text-slate-500',
+        textMain: isDarkMode ? 'text-white' : 'text-slate-900',
+        hover: isDarkMode ? 'hover:bg-slate-800' : 'hover:bg-gray-100',
+        accent: 'bg-indigo-600 hover:bg-indigo-700 text-white',
+        card: isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-gray-200',
+    };
 
-  const navItems = [
-    { id: 'students', label: 'الطلاب', icon: <Icons.Users /> },
-    { id: 'questions', label: 'بنك الأسئلة', icon: <Icons.Folder /> },
-    { id: 'admin-tools', label: 'بنك الأسئلة المتقدم', icon: <Icons.Bolt /> },
-    { id: 'materials', label: 'المحتوى', icon: <Icons.Book /> },
-    { id: 'announcements', label: 'الإعلانات', icon: <Icons.Megaphone /> },
-    { id: 'results', label: 'النتائج', icon: <Icons.Chart /> },
-    { id: 'leaderboard', label: 'لوحة الشرف', icon: <Icons.Trophy /> },
-    { id: 'courses', label: 'إدارة الكورسات', icon: <Icons.Home /> },
-    { id: 'settings', label: 'الإعدادات', icon: <Icons.Cog /> }
-  ];
+    const navItems = [
+        { id: 'students', label: 'الطلاب', icon: <Icons.Users /> },
+        { id: 'questions', label: 'بنك الأسئلة', icon: <Icons.Folder /> },
+        { id: 'admin-tools', label: 'بنك الأسئلة المتقدم', icon: <Icons.Bolt /> },
+        { id: 'materials', label: 'المحتوى', icon: <Icons.Book /> },
+        { id: 'announcements', label: 'الإعلانات', icon: <Icons.Megaphone /> },
+        { id: 'results', label: 'النتائج', icon: <Icons.Chart /> },
+        { id: 'courses', label: 'إدارة الكورسات', icon: <Icons.Home /> },
+        { id: 'settings', label: 'الإعدادات', icon: <Icons.Cog /> }
+    ];
 
-  return (
-    <aside className={`h-full w-full md:w-auto transition-all duration-300 flex flex-col shadow-xl border-l ${isSidebarOpen ? 'md:w-64' : 'md:w-20'} ${theme.sidebar}`}>
-        <div className={`h-16 flex items-center border-b border-gray-700/10 transition-all ${isSidebarOpen ? 'justify-between px-4' : 'justify-center'}`}>
-            {isSidebarOpen ? (
-                <div className="flex items-center gap-2 font-bold text-xl animate-fade-in">
-                    <span className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-sm">A</span>
-                    <span>لوحة التحكم</span>
-                </div>
-            ) : (
-                <span className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-sm font-bold">A</span>
-            )}
-        </div>
+    return (
+        <aside 
+            className={`fixed md:sticky top-0 right-0 h-screen z-50 transition-all duration-300 transform 
+            ${isSidebarOpen ? 'translate-x-0 w-72 md:w-64' : 'translate-x-full md:translate-x-0 md:w-20'} 
+            ${theme.sidebar} flex flex-col shadow-2xl border-l`}
+        >
+            {/* Header - اللوجو وعنوان اللوحة */}
+            <div className={`h-16 flex items-center border-b border-gray-700/10 transition-all ${isSidebarOpen ? 'justify-between px-4' : 'justify-center'}`}>
+                {isSidebarOpen ? (
+                    <div className="flex items-center gap-2 font-bold text-lg animate-fade-in">
+                        <span className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-xs shadow-lg shadow-indigo-500/20">A</span>
+                        <span className={theme.textMain}>لوحة التحكم</span>
+                    </div>
+                ) : (
+                    <span className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-xs font-bold">A</span>
+                )}
+            </div>
 
-        {/* 🆕 زرار العودة للموقع الرئيسي */}
-        <div className="p-3">
-             <Link href="/" className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-bold transition-all duration-200 text-green-500 hover:bg-green-500/10 ${!isSidebarOpen && 'justify-center'}`} title="العودة للموقع">
-                <span>🌐</span>
-                {isSidebarOpen && <span>الموقع الرئيسي</span>}
-             </Link>
-        </div>
-
-        <nav className="flex-1 overflow-y-auto py-2 px-3 space-y-1 custom-scrollbar">
-            {navItems.map((item) => (
-                <button
-                    key={item.id}
-                    onClick={() => {
-                        setActiveTab(item.id);
-                        if(onCloseMobile) onCloseMobile(); // 🔥 نقفل القائمة في الموبايل
-                    }}
-                    className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all duration-200 
-                    ${activeTab === item.id 
-                        ? `${theme.accent} shadow-md` 
-                        : `${theme.textSec} ${theme.hover}`
-                    } ${!isSidebarOpen && 'justify-center'}`}
-                    title={!isSidebarOpen ? item.label : ''}
+            {/* زرار العودة للموقع */}
+            <div className="p-3">
+                <Link 
+                    href="/" 
+                    className={`flex items-center gap-3 px-3 py-3 rounded-xl text-xs font-black transition-all duration-200 text-emerald-500 bg-emerald-500/5 hover:bg-emerald-500/10 ${!isSidebarOpen && 'justify-center'}`}
                 >
-                    {item.icon}
-                    {isSidebarOpen && <span className="animate-fade-in">{item.label}</span>}
-                    {item.id === 'students' && pendingCount > 0 && (
-                        <span className={`bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full animate-pulse ${!isSidebarOpen ? 'absolute top-2 right-2' : 'mr-auto'}`}>
-                            {pendingCount}
-                        </span>
-                    )}
-                </button>
-            ))}
-        </nav>
+                    <span>🌐</span>
+                    {isSidebarOpen && <span>الموقع الرئيسي</span>}
+                </Link>
+            </div>
 
-        <div className={`p-4 border-t border-gray-700/10`}>
-             {/* ... (باقي كود البروفايل والخروج زي ما هو) ... */}
-            {isSidebarOpen ? (
-                <div className={`flex items-center gap-3 p-3 rounded-xl mb-2 animate-fade-in ${theme.card}`}>
-                    <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold">
-                        {adminData?.name ? adminData.name[0] : 'A'}
+            {/* روابط التنقل */}
+            <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1.5 custom-scrollbar">
+                {navItems.map((item) => {
+                    const isActive = activeTab === item.id;
+                    return (
+                        <button
+                            key={item.id}
+                            onClick={() => {
+                                setActiveTab(item.id);
+                                if (window.innerWidth < 768 && onCloseMobile) onCloseMobile();
+                            }}
+                            className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-bold transition-all duration-300 relative group
+                            ${isActive ? `${theme.accent} shadow-lg shadow-indigo-500/20` : `${theme.textSec} ${theme.hover}`} 
+                            ${!isSidebarOpen && 'justify-center'}`}
+                            title={!isSidebarOpen ? item.label : ''}
+                        >
+                            <span className={`${isActive ? 'text-white' : 'text-indigo-500'} transition-colors`}>
+                                {item.icon}
+                            </span>
+                            
+                            {isSidebarOpen && <span className="truncate">{item.label}</span>}
+
+                            {/* إشعار الطلاب المعلقين */}
+                            {item.id === 'students' && pendingCount > 0 && (
+                                <span className={`bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full animate-pulse ${!isSidebarOpen ? 'absolute -top-1 -right-1' : 'mr-auto'}`}>
+                                    {pendingCount}
+                                </span>
+                            )}
+                        </button>
+                    );
+                })}
+            </nav>
+
+            {/* الجزء السفلي - البروفايل والخروج */}
+            <div className="p-4 border-t border-gray-700/10 space-y-2">
+                {isSidebarOpen ? (
+                    <div className={`flex items-center gap-3 p-3 rounded-2xl ${isDarkMode ? 'bg-white/5' : 'bg-gray-50'} border border-gray-700/5`}>
+                        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center font-black text-sm shadow-md">
+                            {adminData?.name ? adminData.name[0].toUpperCase() : 'A'}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className={`text-xs font-black truncate ${theme.textMain}`}>{adminData?.name}</p>
+                            <p className="text-[10px] font-bold text-indigo-500">مدير النظام</p>
+                        </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                        <p className={`text-sm font-bold truncate ${theme.textMain}`}>{adminData?.name}</p>
-                        <p className={`text-xs truncate ${theme.textSec}`}>Admin</p>
+                ) : (
+                    <div className="w-9 h-9 mx-auto rounded-xl bg-indigo-600 text-white flex items-center justify-center font-black mb-4 shadow-md">
+                        {adminData?.name ? adminData.name[0].toUpperCase() : 'A'}
                     </div>
-                </div>
-            ) : (
-                <div className="w-10 h-10 mx-auto rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold mb-4">
-                    {adminData?.name ? adminData.name[0] : 'A'}
-                </div>
-            )}
-            <button onClick={() => signOut(auth)} className={`w-full flex items-center justify-center gap-2 p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors text-sm font-bold ${!isSidebarOpen && 'h-10 w-10 mx-auto'}`}>
-               <Icons.Logout /> {isSidebarOpen && "خروج"}
-            </button>
-        </div>
-    </aside>
-  );
+                )}
+
+                <button 
+                    onClick={async () => {
+                        if(!confirm("هل تريد تسجيل الخروج؟")) return;
+                        try {
+                            await Promise.race([
+                                signOut(auth),
+                                new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2000))
+                            ]);
+                        } catch (e) {}
+                        await logout();
+                        window.location.href = "/login";
+                    }} 
+                    className={`w-full flex items-center gap-3 p-3 text-red-500 hover:bg-red-500/10 rounded-xl transition-all text-xs font-black ${!isSidebarOpen && 'justify-center'}`}
+                >
+                    <Icons.Logout /> {isSidebarOpen && "تسجيل الخروج"}
+                </button>
+            </div>
+        </aside>
+    );
 }

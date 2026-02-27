@@ -3,6 +3,7 @@
 import { adminDb } from "@/lib/firebase-admin-config";
 import { FieldValue } from "firebase-admin/firestore";
 import { sendNotification } from "@/app/actions/notifications";
+import { unstable_cache } from "next/cache";
 
 // دالة مساعدة لتحويل التواريخ لنصوص (عشان نحل مشكلة الـ Serialization)
 const serializeData = (data) => {
@@ -40,17 +41,22 @@ export async function getStudentDashboardData(uid) {
         const enrolled = userData.enrolledCourses || [];
         let detailedCourses = [];
 
-        for (const item of enrolled) {
-            const courseSnap = await adminDb.collection('courses').doc(item.courseId).get();
-            if (courseSnap.exists) {
-                const cData = courseSnap.data();
-                detailedCourses.push(serializeData({
-                    ...item,
-                    ...cData,
-                    courseId: item.courseId,
-                    courseName: cData.title || cData.name || cData.courseName,
-                }));
-            }
+        if (enrolled.length > 0) {
+            const courseRefs = enrolled.map(item => adminDb.collection('courses').doc(item.courseId));
+            const courseSnaps = await adminDb.getAll(...courseRefs);
+
+            courseSnaps.forEach((courseSnap, index) => {
+                if (courseSnap.exists) {
+                    const cData = courseSnap.data();
+                    const item = enrolled[index];
+                    detailedCourses.push(serializeData({
+                        ...item,
+                        ...cData,
+                        courseId: item.courseId,
+                        courseName: cData.title || cData.name || cData.courseName,
+                    }));
+                }
+            });
         }
 
         // 3. جلب الإعلانات
@@ -76,34 +82,40 @@ export async function getStudentDashboardData(uid) {
             .orderBy('submittedAt', 'desc')
             .get();
 
-        const results = await Promise.all(resSnap.docs.map(async d => {
+        const uniqueCourseIds = [...new Set(resSnap.docs.map(d => d.data().courseId).filter(Boolean))];
+        const uniqueExamCodes = [...new Set(resSnap.docs.map(d => d.data().examCode).filter(Boolean))];
+
+        const configsMap = {};
+        const settingsMap = {};
+
+        if (uniqueCourseIds.length > 0) {
+            const configRefs = uniqueCourseIds.map(id => adminDb.collection('exam_configs').doc(id));
+            const configSnaps = await adminDb.getAll(...configRefs);
+            configSnaps.forEach(snap => {
+                if (snap.exists) configsMap[snap.id] = snap.data();
+            });
+        }
+
+        if (uniqueExamCodes.length > 0) {
+            const settingRefs = uniqueExamCodes.map(code => adminDb.collection('exam_settings').doc(code));
+            const settingSnaps = await adminDb.getAll(...settingRefs);
+            settingSnaps.forEach(snap => {
+                if (snap.exists) settingsMap[snap.id] = snap.data();
+            });
+        }
+
+        const results = resSnap.docs.map(d => {
             const rData = d.data();
-
-            // أ. نجيب إعدادات الكورس العامة (عشان الشهادة)
-            let courseConfig = {};
-            if (rData.courseId) {
-                const configSnap = await adminDb.collection('exam_configs').doc(rData.courseId).get();
-                if (configSnap.exists) courseConfig = configSnap.data();
-            }
-
-            // ب. نجيب إعدادات كود الامتحان (عشان زرار العين - المراجعة) 🔥 ده التعديل المهم
-            let isReviewVisible = false;
-            if (rData.examCode) {
-                const codeSnap = await adminDb.collection('exam_settings').doc(rData.examCode).get();
-                if (codeSnap.exists) {
-                    isReviewVisible = codeSnap.data().isVisible === true;
-                }
-            }
+            const courseConfig = rData.courseId ? (configsMap[rData.courseId] || {}) : {};
+            const examSetting = rData.examCode ? (settingsMap[rData.examCode] || {}) : {};
 
             return {
                 id: d.id,
                 ...serializeData(rData),
-                // هنا بنقوله المراجعة متاحة بس لو الأدمن فعل زرار العين للكود ده
-                allowReview: isReviewVisible,
-                // والشهادة متاحة لو مفعلة في إعدادات الكورس العامة
+                allowReview: examSetting.isVisible === true,
                 allowCertificate: courseConfig.enableCertificate === true
             };
-        }));
+        });
 
         return {
             success: true,
@@ -132,37 +144,126 @@ export async function getStudentDashboardData(uid) {
         return { success: false, message: error.message };
     }
 }
-export async function getAllCourses(filters = {}) {
+
+// ==========================================================
+// 📈 2. تتبع تقدم الطالب (Progress & Views) - NEW PHASE 3
+// ==========================================================
+
+export async function getStudentCourseProgress(studentUid, courseId) {
     try {
-        let query = adminDb.collection('courses').where('active', '==', true);
+        if (!studentUid || !courseId) throw new Error("Missing parameters");
 
-        // 1. Filter by Mode (academic, revision, summer)
-        if (filters.mode) {
-            // Note: Old courses might be using isRevision/isVacation logic
-            if (filters.mode === 'revision') {
-                // Try to catch both new 'type' and old 'isRevision'
-                // Firestore OR query is tricky, so we rely on client side filtering for mixed data 
-                // OR we enforce the 'type' field in the new Admin code (which we did).
-                query = query.where('type', '==', 'revision');
-            } else if (filters.mode === 'summer') {
-                query = query.where('type', '==', 'summer');
-            } else if (filters.mode === 'academic') {
-                // For academic, we want strict university matching if provided
-                query = query.where('type', '==', 'academic');
+        // 1. Fetch Video Views
+        const progressRef = adminDb.collection('user_progress').doc(`${studentUid}_${courseId}`);
+        const progressSnap = await progressRef.get();
+        const views = progressSnap.exists ? (progressSnap.data().views || {}) : {};
+
+        // 2. Fetch Exam Results for this course
+        const resultsSnap = await adminDb.collection('results')
+            .where('studentId', '==', studentUid)
+            .where('courseId', '==', courseId)
+            .get();
+
+        const exams = {};
+
+        resultsSnap.docs.forEach(doc => {
+            const data = doc.data();
+            const eId = data.examId || data.examCode; // Fallback for older data
+            if (!eId) return;
+
+            // Filter out running exams from stats calculation
+            if (data.status && data.status.includes('Running')) {
+                // Just track that they attempted it
+                if (!exams[eId]) {
+                    exams[eId] = { highestScore: 0, totalScore: 0, fullMark: 0, attemptsStarted: 1, attemptsFinished: 0, isPassed: false };
+                } else {
+                    exams[eId].attemptsStarted += 1;
+                }
+                return;
             }
+
+            const score = Number(data.score) || 0;
+            const total = Number(data.total) || 1; // avoid division by zero
+            const scorePercent = Math.round((score / total) * 100); // تحويل لنسبة مئوية
+            // Get passScore from result doc if saved, else default to 50 for safety
+            const passScore = data.passScore ? Number(data.passScore) : 50;
+
+            if (!exams[eId]) {
+                exams[eId] = {
+                    highestScore: scorePercent,
+                    totalScore: scorePercent,
+                    fullMark: total,
+                    attemptsStarted: 1,
+                    attemptsFinished: 1,
+                    isPassed: scorePercent >= passScore, // مقارنة نسبة مئوية بنسبة مئوية
+                    passScore: passScore
+                };
+            } else {
+                exams[eId].attemptsStarted += 1;
+                exams[eId].attemptsFinished += 1;
+                exams[eId].totalScore += scorePercent;
+                if (scorePercent > exams[eId].highestScore) {
+                    exams[eId].highestScore = scorePercent;
+                }
+                if (scorePercent >= passScore) {
+                    exams[eId].isPassed = true; // Once passed, always passed
+                }
+            }
+        });
+
+        // Calculate averages + fetch maxAttempts from exam configs
+        for (const eId of Object.keys(exams)) {
+            const ex = exams[eId];
+            ex.averageScore = ex.attemptsFinished > 0 ? Math.round(ex.totalScore / ex.attemptsFinished) : 0;
+
+            // جلب maxAttempts من exam_configs
+            try {
+                const configSnap = await adminDb.collection('exam_configs').doc(eId).get();
+                if (configSnap.exists) {
+                    ex.maxAttempts = Number(configSnap.data().maxAttempts) || 1;
+                } else {
+                    ex.maxAttempts = 1;
+                }
+            } catch (e) {
+                ex.maxAttempts = 1;
+            }
+            ex.remainingAttempts = Math.max(0, ex.maxAttempts - ex.attemptsFinished);
         }
 
-        // 2. Filter by University Structure (Only for Academic/Revision)
-        if (filters.mode !== 'summer') {
-            if (filters.university) query = query.where('university', '==', filters.university);
-            if (filters.college) query = query.where('college', '==', filters.college);
-            if (filters.year) query = query.where('year', '==', filters.year);
-            // Section filtering is usually done client-side because it's an array in DB or simple string
-        }
+        return { success: true, data: { views, exams } };
 
-        const snapshot = await query.get();
+    } catch (error) {
+        console.error("Progress fetch error:", error);
+        return { success: false, message: error.message };
+    }
+}
 
-        const courses = snapshot.docs.map(doc => {
+export async function recordVideoView(studentUid, courseId, lessonKey) {
+    try {
+        if (!studentUid || !courseId || !lessonKey) throw new Error("Missing parameters");
+
+        const progressRef = adminDb.collection('user_progress').doc(`${studentUid}_${courseId}`);
+
+        // ✅ Use the index-based lessonKey (e.g. "mod0_les1") for uniqueness.
+        // The frontend generates this key via getLessonKey(mIdx, lIdx).
+        await progressRef.set({
+            views: {
+                [lessonKey]: FieldValue.increment(1)
+            },
+            updatedAt: FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        return { success: true };
+    } catch (error) {
+        console.error("Record view error:", error);
+        return { success: false, message: error.message };
+    }
+}
+
+const getCachedActiveCourses = unstable_cache(
+    async () => {
+        const snapshot = await adminDb.collection('courses').where('active', '==', true).get();
+        return snapshot.docs.map(doc => {
             const data = doc.data();
             return {
                 id: doc.id,
@@ -170,6 +271,32 @@ export async function getAllCourses(filters = {}) {
                 image: data.image || null,
             };
         });
+    },
+    ['all-active-courses'],
+    { revalidate: 3600 }
+);
+
+export async function getAllCourses(filters = {}) {
+    try {
+        let courses = await getCachedActiveCourses();
+
+        // 1. Filter by Mode (academic, revision, summer)
+        if (filters.mode) {
+            if (filters.mode === 'revision') {
+                courses = courses.filter(c => c.type === 'revision');
+            } else if (filters.mode === 'summer') {
+                courses = courses.filter(c => c.type === 'summer');
+            } else if (filters.mode === 'academic') {
+                courses = courses.filter(c => c.type === 'academic');
+            }
+        }
+
+        // 2. Filter by University Structure (Only for Academic/Revision)
+        if (filters.mode !== 'summer') {
+            if (filters.university) courses = courses.filter(c => c.university === filters.university);
+            if (filters.college) courses = courses.filter(c => c.college === filters.college);
+            if (filters.year) courses = courses.filter(c => c.year === filters.year);
+        }
 
         // Additional Client-side filtering if Firestore limits are hit (e.g. section)
         let filteredCourses = courses;
@@ -188,7 +315,7 @@ export async function getAllCourses(filters = {}) {
 // 📝 EXAM LOGIC (نظام الامتحانات)
 // ==========================================================
 
-export async function checkExamEligibility(studentId, courseId) {
+export async function checkExamEligibility(studentId, courseId, examId) {
     try {
         const userDoc = await adminDb.collection('users').doc(studentId).get();
         if (!userDoc.exists) return { allowed: false, message: "حساب غير موجود" };
@@ -201,7 +328,7 @@ export async function checkExamEligibility(studentId, courseId) {
         const exceptionDoc = await adminDb.collection('exam_exceptions').doc(exceptionId).get();
 
         // 2. Initial Settings Fetch
-        const settingsRef = adminDb.collection("exam_configs").doc(courseId);
+        const settingsRef = adminDb.collection("exam_configs").doc(examId || courseId);
         const settingsSnap = await settingsRef.get();
 
         let durationMinutes = 45;
@@ -265,17 +392,59 @@ export async function checkExamEligibility(studentId, courseId) {
             }
         }
 
-        // 5. التحقق هل امتحن قبل كده ولا لأ
-        const resultId = `${courseId}_${studentId}_${examCode || 'General'}`;
-        const resultDoc = await adminDb.collection("results").doc(resultId).get();
-
-        if (resultDoc.exists) {
-            const data = resultDoc.data();
-            if (data.status.includes('Running')) return { allowed: true, resume: true, ...serializeData(data) };
-            return { allowed: false, message: "لقد أديت هذا الامتحان مسبقاً" };
+        // 5. التحقق من عدد المحاولات المسموح بها
+        let maxAttempts = 1; // القيمة الافتراضية
+        if (settingsSnap.exists) {
+            const d = settingsSnap.data();
+            maxAttempts = Number(d.maxAttempts) || 1;
         }
 
-        return { allowed: true, durationMinutes: durationMinutes, requiredCode: examCode };
+        // نجيب كل النتائج بتاعة الطالب ده في الامتحان ده
+        // بنجيب كل نتائج الطالب في الكورس ونفلتر بالـ document ID
+        const examKey = examId || examCode || 'General';
+        const basePrefix = `${courseId}_${studentId}_${examKey}`;
+
+        const allResultsSnap = await adminDb.collection('results')
+            .where('studentId', '==', studentId)
+            .where('courseId', '==', courseId)
+            .get();
+
+        // فلترة بالـ doc ID عشان نلاقي بس النتائج بتاعة الامتحان ده
+        const matchingDocs = allResultsSnap.docs.filter(d => d.id.startsWith(basePrefix));
+
+        // نعد المحاولات المخلصة والجارية
+        let finishedAttempts = 0;
+        let runningAttempt = null;
+
+        matchingDocs.forEach(d => {
+            const data = d.data();
+            if (data.status && data.status.includes('Running')) {
+                runningAttempt = { id: d.id, ...serializeData(data) };
+            } else {
+                finishedAttempts++;
+            }
+        });
+
+        // لو فيه محاولة شغالة دلوقتي -> ارجع واكمل
+        if (runningAttempt) {
+            return { allowed: true, resume: true, ...runningAttempt, durationMinutes };
+        }
+
+        // لو خلص كل المحاولات -> امنعه
+        if (finishedAttempts >= maxAttempts) {
+            return { allowed: false, message: `لقد استنفذت جميع المحاولات (${finishedAttempts}/${maxAttempts})` };
+        }
+
+        // لسه عنده محاولات -> اسمحله يدخل
+        const nextAttempt = finishedAttempts + 1;
+        return {
+            allowed: true,
+            durationMinutes: durationMinutes,
+            requiredCode: examCode,
+            isRetake: nextAttempt > 1,
+            attemptNumber: nextAttempt,
+            maxAttempts: maxAttempts
+        };
 
     } catch (error) {
         return { allowed: false, message: "Server Error: " + error.message };
@@ -283,13 +452,16 @@ export async function checkExamEligibility(studentId, courseId) {
 }
 export async function logExamStart(data) {
     try {
-        const { studentName, studentId, courseId, section, examCode, deviceInfo } = data;
-        const resultId = `${courseId}_${studentId}_${examCode || 'General'}`;
+        const { studentName, studentId, courseId, section, examCode, deviceInfo, examId, attemptNumber } = data;
+        const attempt = attemptNumber || 1;
+        const resultId = `${courseId}_${studentId}_${examId || examCode || 'General'}_attempt${attempt}`;
 
         // 1. تسجيل بداية الامتحان
         await adminDb.collection("results").doc(resultId).set({
             studentName, studentId, courseId, section,
             examCode: examCode || 'General',
+            examId: examId || '',
+            attemptNumber: attempt,
             startTime: FieldValue.serverTimestamp(),
             status: "Running ⏳",
             score: 0, total: 0,
@@ -326,10 +498,10 @@ export async function logExamStart(data) {
     } catch (error) { return { success: false }; }
 }
 
-export async function getExamQuestions(courseId) {
+export async function getExamQuestions(courseId, examId) {
     try {
         // 1. جلب الإعدادات اللي أنت عملتها في الـ Admin
-        const settingsSnap = await adminDb.collection("exam_configs").doc(courseId).get();
+        const settingsSnap = await adminDb.collection("exam_configs").doc(examId || courseId).get();
         if (!settingsSnap.exists) return { success: false, message: "لم يتم ضبط إعدادات الامتحان" };
 
         const settings = settingsSnap.data();
@@ -403,12 +575,13 @@ export async function getExamQuestions(courseId) {
 }
 
 export async function submitExamResult(payload) {
-    const { studentId, answers, timeTaken, cheatingLog, questionIds, variants, courseId, examCode, submissionType } = payload;
+    const { studentId, answers, timeTaken, cheatingLog, questionIds, variants, courseId, examCode, submissionType, examId, attemptNumber } = payload;
 
     try {
         if (!courseId || !studentId) throw new Error("Missing Data");
 
-        const resultId = `${courseId}_${studentId}_${examCode || 'General'}`;
+        const attempt = attemptNumber || 1;
+        const resultId = `${courseId}_${studentId}_${examId || examCode || 'General'}_attempt${attempt}`;
         const questionsRef = adminDb.collection('questions_bank');
 
         const snapshot = await questionsRef.where('courseId', '==', courseId).get();
@@ -443,6 +616,7 @@ export async function submitExamResult(payload) {
             answers: cleanAnswers,
             questionIds: targetIds,
             variants: cleanVariants,
+            attemptNumber: attempt,
             submittedAt: FieldValue.serverTimestamp()
         }, { merge: true });
 
@@ -494,9 +668,9 @@ export async function logCheater(data) {
     } catch (e) { return { success: false }; }
 }
 
-export async function verifyExamCodeServer(courseId, inputCode) {
+export async function verifyExamCodeServer(courseId, inputCode, examId) {
     try {
-        const configDoc = await adminDb.collection('exam_configs').doc(courseId).get();
+        const configDoc = await adminDb.collection('exam_configs').doc(examId).get();
         const serverCode = configDoc.exists ? configDoc.data().examCode : "";
         if (String(inputCode).trim() === String(serverCode).trim()) return { success: true };
         return { success: false, message: "الكود غير صحيح" };
@@ -648,8 +822,9 @@ export async function getCourseDetails(courseId, uid) {
                 type: lesson.type,
                 description: lesson.description || null,
                 duration: lesson.duration || null,
-                link: null,    // 🔒 hidden
-                examId: null,  // 🔒 hidden
+                link: lesson.isFree ? lesson.link : null,    // 🔒 hidden unless free preview
+                examId: lesson.isFree ? lesson.examId : null,  // 🔒 hidden unless free preview
+                isFree: lesson.isFree || false
             }))
         }));
 
@@ -660,6 +835,25 @@ export async function getCourseDetails(courseId, uid) {
 
     } catch (error) {
         console.error("Get Course Details Error:", error);
+        return { success: false, message: error.message };
+    }
+}
+
+// 🧠 جلب أسئلة بنك الأسئلة للطالب (لمادة معينة)
+export async function getStudentQuestions(courseId) {
+    try {
+        const q = adminDb.collection('questions_bank').where('courseId', '==', courseId);
+        const snap = await q.get();
+
+        const questions = snap.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            createdAt: doc.data().createdAt?.toDate().toISOString() || null
+        }));
+
+        return { success: true, data: questions };
+    } catch (error) {
+        console.error("Fetch Student Questions Error:", error);
         return { success: false, message: error.message };
     }
 }

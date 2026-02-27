@@ -16,6 +16,8 @@ import {
 
 import { getCourseMaterials } from "@/app/actions/admin";
 import CertificateModal from '@/app/components/CertificateModal';
+import QuestionBankTab from './components/QuestionBankTab';
+import CourseCard from '@/app/components/ui/CourseCard';
 import jsPDF from 'jspdf';
 
 // 🎨 مكون الدورق المتحرك
@@ -69,8 +71,23 @@ function DashboardContent() {
         try {
             console.log("Start fetching data for:", uid); // 🛠️ للتجربة
 
-            const dashboardRes = await getStudentDashboardData(uid);
-            const allCoursesRes = await getAllCourses();
+            // 🛡️ Robust timeout wrapper to prevent unhandled promise rejections and silent hangs
+            const executeWithTimeout = (promise, ms) => {
+                let timeoutId;
+                const timeoutPromise = new Promise((_, reject) => {
+                    timeoutId = setTimeout(() => reject(new Error('Request timeout')), ms);
+                });
+                return Promise.race([
+                    promise.finally(() => clearTimeout(timeoutId)),
+                    timeoutPromise
+                ]).catch(err => {
+                    console.warn("Async task timed out or failed:", err.message);
+                    return { success: false, data: null, error: err.message };
+                });
+            };
+
+            const dashboardRes = await executeWithTimeout(getStudentDashboardData(uid), 15000);
+            const allCoursesRes = await executeWithTimeout(getAllCourses(), 15000);
 
             if (dashboardRes?.success) {
                 setData(dashboardRes.data);
@@ -100,16 +117,34 @@ function DashboardContent() {
     };
 
     useEffect(() => {
+        let isMounted = true;
+
+        // 🛡️ Safety fallback: FORCE remove loading state after 10s if anything hangs completely
+        const safetyTimer = setTimeout(() => {
+            if (isMounted) {
+                console.warn("Safety timer triggered: Forcing dashboard to stop loading.");
+                setLoading(false);
+            }
+        }, 12000);
+
         const unsubscribe = onAuthStateChanged(auth, async (user) => {
             if (!user) {
+                if (isMounted) setLoading(false);
                 router.push('/login');
                 return;
             }
 
             setEmailVerified(user.emailVerified);
 
-            // نده دالة جلب البيانات
-            await fetchData(user.uid);
+            // نده دالة جلب البيانات بداخل بلوك آمن
+            try {
+                await fetchData(user.uid);
+            } finally {
+                if (isMounted) {
+                    setLoading(false);
+                    clearTimeout(safetyTimer);
+                }
+            }
 
             // مراقبة وتحديث الثيم
             const checkTheme = () => {
@@ -124,7 +159,11 @@ function DashboardContent() {
             return () => observer.disconnect();
         });
 
-        return () => unsubscribe();
+        return () => {
+            isMounted = false;
+            unsubscribe();
+            clearTimeout(safetyTimer);
+        };
     }, []);
 
     // --- Handlers ---
@@ -158,7 +197,7 @@ function DashboardContent() {
         if (res.success) setCurrentMaterials({ name: courseName, list: res.data });
     };
 
-    const startExam = (courseId) => { if (confirm("هل أنت مستعد لبدء الامتحان؟ ⏱️")) router.push(`/exam/${courseId}`); };
+    const startExam = (courseId) => { if (confirm("هل أنت مستعد لبدء الامتحان؟ ⏱️")) router.push(`/exam/${course.id}?examId=${activeLesson.examId}`); };
 
     const handleCancelRequest = async (courseId) => {
         if (!confirm("إلغاء طلب الاشتراك؟")) return;
@@ -218,115 +257,7 @@ function DashboardContent() {
     const level = getLevelInfo(avgPercent);
     // --- END: New Logic ---
 
-    // 🎨 مكون كارت الدورة (Premium Course Card)
-    // status: 'active' | 'pending' | 'not-enrolled'
-    const CourseCard = ({ course, status = 'not-enrolled' }) => {
-        const isActive = status === 'active';
-        const isPending = status === 'pending';
 
-        return (
-            <div className={`group relative flex flex-col rounded-[2rem] overflow-hidden border transition-all duration-500 hover:-translate-y-2 hover:shadow-2xl ${isDark ? 'bg-[#0f121a] border-white/5 hover:border-blue-500/40' : 'bg-white border-gray-100 ring-1 ring-gray-100'}`}>
-
-                {/* 1. صورة الكورس */}
-                <div className="relative aspect-video overflow-hidden rounded-t-[2rem]">
-                    {course.image ? (
-                        <img src={course.image} alt={course.name || course.courseName} className="w-full h-full object-cover transition duration-700 group-hover:scale-110" />
-                    ) : (
-                        <div className={`w-full h-full flex items-center justify-center text-6xl ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>📚</div>
-                    )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-
-                    {/* Status / Price Badge */}
-                    <div className="absolute top-4 right-4">
-                        {isActive ? (
-                            <span className="text-[10px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest backdrop-blur-md shadow-lg bg-emerald-500/90 text-white">✓ مفعل</span>
-                        ) : isPending ? (
-                            <span className="text-[10px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest backdrop-blur-md shadow-lg bg-amber-500/90 text-white">⏳ قيد المراجعة</span>
-                        ) : (
-                            <span className="bg-blue-600/90 backdrop-blur-md text-white font-black text-xs px-3 py-1.5 rounded-full shadow-lg">
-                                {course.price > 0 ? `${course.price} ج.م` : 'مجاني'}
-                            </span>
-                        )}
-                    </div>
-                </div>
-
-                {/* 2. التفاصيل */}
-                <div className="p-6 flex flex-col flex-1">
-                    <h4 className={`text-xl font-black mb-2 line-clamp-2 leading-snug ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                        {course.name || course.courseName}
-                    </h4>
-
-                    {/* Instructor */}
-                    <div className="flex items-center gap-2 mb-6">
-                        <img
-                            src={course.instructorImage || '/assets/images/logo.png'}
-                            alt="instructor"
-                            className="w-6 h-6 rounded-full border border-blue-500/30 object-cover"
-                        />
-                        <span className="text-xs text-gray-500 font-bold">{course.instructorName || 'أكاديمية العلوم'}</span>
-                    </div>
-
-                    {/* 🧠 Smart Buttons */}
-                    <div className="mt-auto space-y-3">
-
-                        {/* A — Active: single big CTA */}
-                        {isActive && (
-                            <button
-                                onClick={() => router.push(`/dashboard/course/${course.courseId}`)}
-                                className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black shadow-lg shadow-blue-600/20 transition-all active:scale-95 flex items-center justify-center gap-2"
-                            >
-                                بدء المذاكرة 🚀
-                            </button>
-                        )}
-
-                        {/* B — Pending: Activate + Cancel */}
-                        {isPending && (
-                            <>
-                                <div className="grid grid-cols-2 gap-3">
-                                    <button
-                                        onClick={() => router.push(`/dashboard/course/${course.courseId}`)}
-                                        className={`py-3 rounded-2xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${isDark ? 'bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}
-                                    >
-                                        نظرة عامة 👁️
-                                    </button>
-                                    <button
-                                        onClick={() => handleOpenActivation(course)}
-                                        className="py-3 rounded-2xl font-black text-sm bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20 transition-all active:scale-95 flex items-center justify-center gap-2"
-                                    >
-                                        تفعيل الاشتراك 🔓
-                                    </button>
-                                </div>
-                                <button
-                                    onClick={() => handleCancelRequest(course.courseId)}
-                                    className="w-full py-2 text-xs text-red-500/70 hover:text-red-500 font-bold transition flex items-center justify-center gap-1"
-                                >
-                                    ✕ إلغاء طلب الاشتراك
-                                </button>
-                            </>
-                        )}
-
-                        {/* C — Not Enrolled: Overview + Subscribe */}
-                        {!isActive && !isPending && (
-                            <div className="grid grid-cols-2 gap-3">
-                                <button
-                                    onClick={() => router.push(`/dashboard/course/${course.id}`)}
-                                    className={`py-3 rounded-2xl font-bold text-sm transition-all flex items-center justify-center gap-2 border ${isDark ? 'border-white/10 bg-white/5 hover:bg-white/10 text-gray-300' : 'border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-700'}`}
-                                >
-                                    نظرة عامة 👁️
-                                </button>
-                                <button
-                                    onClick={() => handleInitiateSubscribe(course)}
-                                    className="py-3 rounded-2xl font-black text-sm bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-600/20 transition-all active:scale-95 flex items-center justify-center gap-2"
-                                >
-                                    الاشتراك الآن 🔥
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
-        );
-    };
 
     // ⏳ تعديل شاشة التحميل: خليناها شفافة عشان متعملش شاشة بيضاء وسط الثيم الأسود
     if (loading) return (
@@ -408,7 +339,13 @@ function DashboardContent() {
                                 <h3 className="text-2xl font-black flex items-center gap-3"><span className="w-2 h-8 bg-blue-600 rounded-full"></span> مواد قد تهمك 🎓</h3>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                                     {suggestedCourses.map(course => (
-                                        <CourseCard key={course.id} course={course} status="not-enrolled" />
+                                        <CourseCard
+                                            key={course.id}
+                                            course={course}
+                                            status="not-enrolled"
+                                            isDark={isDark}
+                                            handlers={{ handleInitiateSubscribe, handleOpenActivation, handleCancelRequest }}
+                                        />
                                     ))}
                                 </div>
                             </div>
@@ -426,6 +363,8 @@ function DashboardContent() {
                                     key={course.courseId}
                                     course={course}
                                     status={course.status === 'active' ? 'active' : 'pending'}
+                                    isDark={isDark}
+                                    handlers={{ handleInitiateSubscribe, handleOpenActivation, handleCancelRequest }}
                                 />
                             ))}
                             {data?.courses?.length === 0 && (
@@ -459,7 +398,15 @@ function DashboardContent() {
                                         const courseName = data.courses.find(c => c.courseId === res.courseId)?.courseName || 'General';
                                         return (
                                             <tr key={res.id} className="hover:bg-white/5 transition-colors group">
-                                                <td className="p-6 font-black">{courseName}</td>
+                                                <td className="p-6 font-black">
+                                                    <div className="flex flex-col gap-1">
+                                                        <span>{courseName}</span>
+                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                            {res.examCode && <span className="text-xs text-blue-500 uppercase tracking-widest">{res.examCode}</span>}
+                                                            {res.attemptNumber && <span className="text-[10px] bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-lg font-black">المحاولة {res.attemptNumber}</span>}
+                                                        </div>
+                                                    </div>
+                                                </td>
                                                 <td className="p-6">
                                                     <span className={`text-lg font-black ${isPassed ? 'text-emerald-500' : 'text-red-500'}`}>{res.score}</span>
                                                     <span className="text-gray-500 text-xs font-bold"> / {res.total}</span>
@@ -487,9 +434,14 @@ function DashboardContent() {
                 {activeTab === 'community' && (
                     <div className="animate-slide-up text-center py-20 bg-white/5 rounded-[3rem] border border-dashed border-white/10">
                         <div className="text-6xl mb-6">💬</div>
-                        <h3 className="text-3xl font-black mb-4">منتدى أكاديمية لوكسر</h3>
+                        <h3 className="text-3xl font-black mb-4">المنتدى</h3>
                         <p className="text-gray-500 font-bold max-w-md mx-auto">قريباً.. مكان مخصص للنقاش بين الطلاب والمحاضرين، طرح الأسئلة، ومشاركة المعرفة.</p>
                     </div>
+                )}
+
+                {/* E. بنك الأسئلة (Question Bank) */}
+                {activeTab === 'bank' && (
+                    <QuestionBankTab myCourses={data?.courses || []} isDark={isDark} />
                 )}
 
             </div>

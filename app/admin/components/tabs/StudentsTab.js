@@ -9,7 +9,9 @@ export default function StudentsTab({
     myCourses,
     searchTerm,
     onRefresh,
-    isDarkMode
+    isDarkMode,
+    onLoadMore,
+    hasMoreStudents
 }) {
     // Navigation State
     const [viewMode, setViewMode] = useState('folders'); // 'folders' | 'list'
@@ -66,7 +68,7 @@ export default function StudentsTab({
     const handleGrantException = async (e, studentUid, courseId) => {
         e.stopPropagation(); // عشان ميففتحش البروفايل لما ندوس
         if (!confirm("هل أنت متأكد من منح هذا الطالب استثناء لدخول الامتحان؟ (سيتم تجاوز الوقت والشروط لمرة واحدة)")) return;
-        
+
         const res = await grantExamException(studentUid, courseId);
         if (res.success) {
             alert(res.message);
@@ -76,7 +78,7 @@ export default function StudentsTab({
     };
 
     return (
-        <div className="space-y-8 animate-fade-in relative z-0"> 
+        <div className="space-y-8 animate-fade-in relative z-0">
             {/* ✅ Z-0 added to prevent overlay issues */}
 
             {/* 🚨 1. PENDING REQUESTS (Always Visible) */}
@@ -142,6 +144,11 @@ export default function StudentsTab({
                                     <span className="text-xs text-indigo-500 font-bold">ملف الطالب ➡</span>
                                 </div>
                             ))}
+                        {hasMoreStudents && (
+                            <button onClick={onLoadMore} className={`w-full p-3 mt-2 rounded-xl border border-indigo-200 text-indigo-600 font-bold hover:bg-indigo-50 dark:border-indigo-900/50 dark:text-indigo-400 dark:hover:bg-indigo-900/30 transition`}>
+                                👇 تحميل المزيد
+                            </button>
+                        )}
                     </div>
                 </div>
             ) : !selectedCourseId ? (
@@ -223,23 +230,28 @@ export default function StudentsTab({
                                                 </div>
                                             </div>
                                         </div>
-                                        
+
                                         {/* 🔥 أزرار التحكم في الطالب (الاستثناء والبروفايل) */}
                                         <div className="flex items-center gap-2">
                                             {/* زرار الاستثناء الجديد */}
-                                            <button 
+                                            <button
                                                 onClick={(e) => handleGrantException(e, student.uid, selectedCourseId)}
                                                 className="px-3 py-1.5 rounded-lg bg-yellow-500/10 text-yellow-600 hover:bg-yellow-500 hover:text-white border border-yellow-500/30 transition text-xs font-bold flex items-center gap-1"
                                                 title="السماح للطالب بدخول الامتحان مرة أخرى رغم انتهاء الوقت"
                                             >
                                                 🔓 استثناء
                                             </button>
-                                            
+
                                             <span className="text-xs text-gray-400 bg-gray-50 dark:bg-slate-800 px-3 py-1 rounded-lg">إدارة ⚙️</span>
                                         </div>
                                     </div>
                                 );
                             })}
+                        {hasMoreStudents && (
+                            <button onClick={onLoadMore} className={`w-full p-3 mt-2 rounded-xl border border-indigo-200 text-indigo-600 font-bold hover:bg-indigo-50 dark:border-indigo-900/50 dark:text-indigo-400 dark:hover:bg-indigo-900/30 transition`}>
+                                👇 تحميل المزيد
+                            </button>
+                        )}
                     </div>
                 </div>
             )}

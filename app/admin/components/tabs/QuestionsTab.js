@@ -1,7 +1,7 @@
 'use client';
 import React, { useState, useMemo, useEffect } from 'react';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, doc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, setDoc, deleteDoc, serverTimestamp, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 // 5. Removed server-side stats fetch import per requirements
 // 👇 1. استدعاء المكون الخارجي (اللي احنا عدلناه وخليناه عريض)
 import QuestionPreview from '../ui/QuestionPreview';
@@ -21,12 +21,15 @@ export default function QuestionsTab({
     const [qImage, setQImage] = useState('');
     const [qDifficulty, setQDifficulty] = useState('medium');
     const [qLecture, setQLecture] = useState('');
+    const [qExplanation, setQExplanation] = useState('');
     const [uploadingImage, setUploadingImage] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [editMode, setEditMode] = useState(null);
     const [selectedLectureView, setSelectedLectureView] = useState(null);
     const [courseFilter, setCourseFilter] = useState('all');
     const [previewIndex, setPreviewIndex] = useState(0);
+    const [folderQuestions, setFolderQuestions] = useState([]);
+    const [loadingFolder, setLoadingFolder] = useState(false);
 
     const [options, setOptions] = useState([
         { text: "", isCorrect: true }, { text: "", isCorrect: false },
@@ -36,8 +39,8 @@ export default function QuestionsTab({
     // Dynamic Stats Logic
     const displayedQuestions = useMemo(() => {
         if (!selectedLectureView) return questionsList;
-        return questionsList.filter(q => (q.lecture || "أسئلة عامة").trim() === selectedLectureView);
-    }, [questionsList, selectedLectureView]);
+        return folderQuestions;
+    }, [questionsList, selectedLectureView, folderQuestions]);
 
     // Questions shown in the preview paginator (same as displayedQuestions when a folder is open)
     const filteredQuestions = displayedQuestions;
@@ -98,10 +101,31 @@ export default function QuestionsTab({
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
+    const handleFolderSelect = async (name) => {
+        setSelectedLectureView(name);
+        setLoadingFolder(true);
+        try {
+            const qName = name === "أسئلة عامة" ? "" : name;
+            let q;
+            if (qName === "") {
+                q = query(collection(db, 'questions_bank'), where('courseId', '==', selectedCourseForQ), limit(50));
+            } else {
+                q = query(collection(db, 'questions_bank'), where('courseId', '==', selectedCourseForQ), where('lecture', '==', name), limit(100));
+            }
+            const snapshot = await getDocs(q);
+            setFolderQuestions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        } catch (e) {
+            console.error(e);
+            alert("خطأ في تحميل الأسئلة");
+        }
+        setLoadingFolder(false);
+    };
+
     const handleBackToGrid = () => {
         setSelectedCourseForQ(null);
         setQuestionText("");
         setQImage("");
+        setQExplanation("");
     };
 
     // CRUD Operations
@@ -134,6 +158,7 @@ export default function QuestionsTab({
                 difficulty: qDifficulty,
                 options: options,
                 lecture: qLecture,
+                explanation: qExplanation,
                 createdAt: serverTimestamp()
             };
 
@@ -147,10 +172,10 @@ export default function QuestionsTab({
 
             setQuestionText("");
             setQImage("");
+            setQExplanation("");
             setOptions([{ text: "", isCorrect: true }, { text: "", isCorrect: false }, { text: "", isCorrect: false }, { text: "", isCorrect: false }]);
             fetchQuestions(selectedCourseForQ);
-            setOptions([{ text: "", isCorrect: true }, { text: "", isCorrect: false }, { text: "", isCorrect: false }, { text: "", isCorrect: false }]);
-            fetchQuestions(selectedCourseForQ);
+            if (selectedLectureView) handleFolderSelect(selectedLectureView);
             // Stats update automatically via useMemo
         } catch (e) { alert("خطأ في الحفظ"); console.error(e); }
         finally { setIsSaving(false); }
@@ -160,7 +185,7 @@ export default function QuestionsTab({
         if (confirm("حذف؟")) {
             await deleteDoc(doc(db, "questions_bank", id));
             fetchQuestions(selectedCourseForQ);
-            fetchQuestions(selectedCourseForQ);
+            if (selectedLectureView) handleFolderSelect(selectedLectureView);
             // Stats update automatically via useMemo
         }
     };
@@ -171,6 +196,7 @@ export default function QuestionsTab({
         setQImage(q.image || "");
         setQDifficulty(q.difficulty || 'medium');
         setQLecture(q.lecture || "");
+        setQExplanation(q.explanation || "");
         setOptions(q.options);
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
@@ -309,6 +335,16 @@ export default function QuestionsTab({
                         ))}
                     </div>
 
+                    {/* 3.5 Explanation (تفسير الحل) */}
+                    <div className="w-full">
+                        <textarea
+                            placeholder="تفسير الحل (اختياري) - سيظهر للطالب بعد الإجابة أو عند طلب المساعدة"
+                            className={`w-full p-5 rounded-2xl h-24 resize-none outline-none focus:ring-2 focus:ring-amber-500 transition text-sm font-medium border-2 border-amber-500/30 dark:focus:ring-amber-500 ${theme.input} `}
+                            value={qExplanation}
+                            onChange={e => setQExplanation(e.target.value)}
+                        />
+                    </div>
+
                     {/* 4. Tools */}
                     {/* 🔥🔥 التعديل: flex-col للموبايل و md:flex-row للشاشات الأكبر */}
                     <div className="flex flex-col md:flex-row gap-4 items-stretch">
@@ -344,8 +380,9 @@ export default function QuestionsTab({
                             setEditMode(null);
                             setQuestionText("");
                             setQImage("");
+                            setQExplanation("");
                             setOptions([{ text: "", isCorrect: true }, { text: "", isCorrect: false }, { text: "", isCorrect: false }, { text: "", isCorrect: false }]);
-                            
+
                             if (direction === 'prev') setPreviewIndex(i => Math.max(0, i - 1));
                             if (direction === 'next') setPreviewIndex(i => Math.min(filteredQuestions.length - 1, i + 1));
                         };
@@ -370,7 +407,7 @@ export default function QuestionsTab({
 
                                 {/* The Card Container */}
                                 <div className={`relative p-8 md:p-12 rounded-[2.5rem] border overflow-hidden transition-all duration-500 ${isDarkMode ? 'bg-[#0f121a] border-white/5 shadow-2xl shadow-black/50' : 'bg-white border-gray-100 shadow-xl'}`}>
-                                    
+
                                     {/* Navigation Arrows (تظهر دائماً الآن حتى عند التعديل) */}
                                     {hasQuestions && (
                                         <>
@@ -413,6 +450,7 @@ export default function QuestionsTab({
                                                 options={options}
                                                 image={qImage}
                                                 difficulty={qDifficulty}
+                                                explanation={qExplanation}
                                             />
                                         ) : previewQ ? (
                                             <QuestionPreview
@@ -420,6 +458,7 @@ export default function QuestionsTab({
                                                 options={previewQ.options}
                                                 image={previewQ.image || ''}
                                                 difficulty={previewQ.difficulty || 'medium'}
+                                                explanation={previewQ.explanation || ''}
                                                 key={previewQ.id} // مفتاح لإعادة تشغيل الأنيميشن
                                             />
                                         ) : null}
@@ -450,7 +489,7 @@ export default function QuestionsTab({
                             groups[key]++;
                             return groups;
                         }, {})).map(([name, count], idx) => (
-                            <div key={idx} onClick={() => setSelectedLectureView(name)} className={`p-4 rounded-2xl border cursor-pointer hover:border-indigo-500 transition group flex flex-col items-center justify-center gap-2 text-center ${theme.card}`}>
+                            <div key={idx} onClick={() => handleFolderSelect(name)} className={`p-4 rounded-2xl border cursor-pointer hover:border-indigo-500 transition group flex flex-col items-center justify-center gap-2 text-center ${theme.card}`}>
                                 <div className="text-3xl">📁</div>
                                 <div>
                                     <h4 className={`font-bold text-sm ${theme.textMain} truncate max-w-[120px]`}>{name}</h4>
@@ -458,6 +497,10 @@ export default function QuestionsTab({
                                 </div>
                             </div>
                         ))}
+                    </div>
+                ) : loadingFolder ? (
+                    <div className="flex justify-center p-8">
+                        <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

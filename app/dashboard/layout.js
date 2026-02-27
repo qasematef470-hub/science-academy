@@ -29,28 +29,50 @@ function DashboardLayoutInner({ children }) {
 
     // 🔐 مراقبة حالة تسجيل الدخول وجلب الاسم من Firestore
     useEffect(() => {
+        let isMounted = true;
+        // 🛡️ Safety fallback timer for layout loading in case auth or fetch hangs
+        const safetyTimer = setTimeout(() => {
+            if (isMounted) setLoading(false);
+        }, 10000);
+
         const unsubscribe = onAuthStateChanged(auth, async (user) => {
+            const isCoursePage = pathname.includes('/dashboard/course/');
+
             if (!user) {
-                setAuthorized(false);
-                setLoading(true);
-                router.replace('/login');
+                if (isMounted) { setAuthorized(isCoursePage); setLoading(false); }
+                if (!isCoursePage) router.replace('/login');
             } else {
                 if (!user.emailVerified) {
+                    if (isMounted) setLoading(false);
                     router.replace('/verify-email');
                 } else {
-                    // جلب اسم الطالب الحقيقي من الداتابيز
-                    try {
-                        const userDoc = await getDoc(doc(db, 'users', user.uid));
-                        if (userDoc.exists()) {
-                            setStudentName(userDoc.data().name || user.displayName || 'طالب');
-                        } else {
-                            setStudentName(user.displayName || 'طالب');
-                        }
-                    } catch (e) {
+                    // Start by authorizing and showing content immediately
+                    if (isMounted) {
+                        setAuthorized(true);
                         setStudentName(user.displayName || 'طالب');
                     }
-                    setAuthorized(true);
-                    setLoading(false);
+
+                    // جلب اسم الطالب الحقيقي من الداتابيز without blocking loading
+                    try {
+                        let timeoutId;
+                        const timeoutPromise = new Promise((_, reject) => {
+                            timeoutId = setTimeout(() => reject(new Error('timeout')), 5000);
+                        });
+                        const fetchPromise = getDoc(doc(db, 'users', user.uid));
+                        const userDoc = await Promise.race([
+                            fetchPromise.finally(() => clearTimeout(timeoutId)),
+                            timeoutPromise
+                        ]).catch(err => ({ exists: () => false })); // Absorb timeout error silently
+
+                        if (userDoc.exists()) {
+                            setStudentName(userDoc.data().name || user.displayName || 'طالب');
+                        }
+                    } catch (e) {
+                        console.error('Failed to fetch user doc:', e);
+                    } finally {
+                        if (isMounted) setLoading(false);
+                        clearTimeout(safetyTimer);
+                    }
                 }
             }
         });
@@ -59,7 +81,11 @@ function DashboardLayoutInner({ children }) {
         const savedTheme = localStorage.getItem('theme');
         if (savedTheme) setIsDarkMode(savedTheme === 'dark');
 
-        return () => unsubscribe();
+        return () => {
+            isMounted = false;
+            unsubscribe();
+            clearTimeout(safetyTimer);
+        };
     }, [router]);
 
     // تبديل وضع الإضاءة
@@ -77,11 +103,15 @@ function DashboardLayoutInner({ children }) {
     const handleLogout = async () => {
         setLoading(true);
         try {
-            await logout(); // 3. Clear server cookies
-            await signOut(auth); // 4. Clear client auth
-            window.location.href = '/login'; // Hard reload is okay here to clear states
+            await signOut(auth);
+            localStorage.clear();
+            sessionStorage.clear();
+            document.cookie = "firebaseToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+            document.cookie = "userRole=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+            await logout();
         } catch (error) {
             console.error("Logout Error:", error);
+        } finally {
             window.location.href = '/login';
         }
     };
@@ -214,8 +244,14 @@ function DashboardLayoutInner({ children }) {
                         </button>
 
                         <div className="flex flex-col">
-                            <h2 className="font-black text-lg">أهلاً، {studentName.split(' ')[0]}! 👋</h2>
-                            <p className={`text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>طالب في Science Academy</p>
+                            {studentName ? (
+                                <>
+                                    <h2 className="font-black text-lg">أهلاً، {studentName.split(' ')[0]}! 👋</h2>
+                                    <p className={`text-[10px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>طالب في Science Academy</p>
+                                </>
+                            ) : (
+                                <h2 className="font-black text-lg">مرحباً بك خـلال تصفحك! 👋</h2>
+                            )}
                         </div>
                     </div>
 
@@ -229,15 +265,23 @@ function DashboardLayoutInner({ children }) {
                             {isDarkMode ? '☀️' : '🌙'}
                         </button>
 
-                        {/* جرس الإشعارات */}
-                        <div className={`p-2 rounded-xl border ${isDarkMode ? 'bg-white/5 border-white/10' : 'bg-gray-100 border-gray-200'}`}>
-                            <NotificationBell />
-                        </div>
+                        {studentName ? (
+                            <>
+                                {/* جرس الإشعارات */}
+                                <div className={`p-2 rounded-xl border ${isDarkMode ? 'bg-white/5 border-white/10' : 'bg-gray-100 border-gray-200'}`}>
+                                    <NotificationBell />
+                                </div>
 
-                        {/* صورة/أفاتار الطالب */}
-                        <div className={`w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center font-black text-white shadow-lg border ${isDarkMode ? 'border-white/10' : 'border-blue-200'}`}>
-                            {studentName[0]?.toUpperCase() || 'S'}
-                        </div>
+                                {/* صورة/أفاتار الطالب */}
+                                <div className={`w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center font-black text-white shadow-lg border ${isDarkMode ? 'border-white/10' : 'border-blue-200'}`}>
+                                    {studentName[0]?.toUpperCase() || 'S'}
+                                </div>
+                            </>
+                        ) : (
+                            <Link href="/login" className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg transition-all">
+                                تسجيل الدخول
+                            </Link>
+                        )}
                     </div>
                 </header>
 

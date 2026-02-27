@@ -3,14 +3,14 @@ import type { NextRequest } from 'next/server';
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  
+
   // 1. قراءة التوكن والرتبة من الكوكيز
   const token = request.cookies.get('firebaseToken')?.value;
   const userRole = request.cookies.get('userRole')?.value; // هنضيف دي في ملف الـ Auth الجاي
 
   // 2. تحديد المسارات
   const isAdminRoute = pathname.startsWith('/admin');
-  const isStudentRoute = pathname.startsWith('/dashboard') || pathname.startsWith('/exam') || pathname.startsWith('/study');
+  const isStudentRoute = (pathname.startsWith('/dashboard') && !pathname.startsWith('/dashboard/course')) || pathname.startsWith('/exam');
   const isAuthRoute = pathname === '/login' || pathname === '/signup';
 
   // 🔴 الحالة الأولى: غير مسجل دخول وبيحاول يدخل منطقة محمية
@@ -46,7 +46,6 @@ export const config = {
     '/admin/:path*',
     '/dashboard/:path*',
     '/exam/:path*',
-    '/study/:path*',
     '/login',
     '/signup',
   ],

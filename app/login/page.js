@@ -191,7 +191,7 @@ function LoginContent() {
                     <input 
                         type="text" 
                         required
-                        placeholder="example@gmail.com" 
+                        placeholder="admin@science-academy.com" 
                         className={`w-full rounded-xl p-4 font-bold focus:border-blue-500 outline-none transition dir-ltr ${inputClass}`} 
                         value={emailInput} 
                         onChange={(e) => setEmailInput(e.target.value)} 

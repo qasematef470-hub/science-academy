@@ -3,13 +3,15 @@
 import React, { useState, useEffect } from 'react';
 import Navbar from './components/home/Navbar';
 import Hero from './components/home/Hero';
+import HallOfFame from './components/home/HallOfFame';
 import About from './components/home/About';
+import RegistrationGuide from './components/home/RegistrationGuide';
 import Features from './components/home/Features';
 import Courses from './components/home/Courses';
 import Steps from './components/home/Steps';
 import Team from './components/home/Team';
 import Footer from './components/home/Footer';
-import FloatingShape from './components/ui/FloatingShape'; 
+import FloatingShape from './components/ui/FloatingShape';
 
 export default function Home() {
   const [isDarkMode, setIsDarkMode] = useState(true);
@@ -18,7 +20,7 @@ export default function Home() {
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme) {
-        setIsDarkMode(savedTheme === 'dark');
+      setIsDarkMode(savedTheme === 'dark');
     }
     setMounted(true);
   }, []);
@@ -42,16 +44,16 @@ export default function Home() {
 
   return (
     <div className={`min-h-screen font-sans dir-rtl transition-colors duration-500 overflow-x-hidden ${theme.bg} ${theme.textMain}`}>
-      
+
       {/* 🌌 الخلفية (The Background Layer) */}
       <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden h-screen">
-        
+
         {/* 1. الـ Blobs القديمة (اللون الأزرق والبنفسجي) */}
         {isDarkMode && (
-            <>
-                <div className="absolute top-[-20%] right-[-10%] w-[600px] h-[600px] bg-blue-600/20 rounded-full blur-[100px] animate-pulse"></div>
-                <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-purple-600/20 rounded-full blur-[100px]"></div>
-            </>
+          <>
+            <div className="absolute top-[-20%] right-[-10%] w-[600px] h-[600px] bg-blue-600/20 rounded-full blur-[100px] animate-pulse"></div>
+            <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-purple-600/20 rounded-full blur-[100px]"></div>
+          </>
         )}
 
         {/* 2. الرموز الطائرة (مع تأثير السكرول) */}
@@ -67,14 +69,16 @@ export default function Home() {
 
       {/* مكونات الصفحة (فوق الخلفية) */}
       <div className="relative z-10">
-          <Navbar isDarkMode={isDarkMode} toggleTheme={toggleTheme} theme={theme} />
-          <Hero theme={theme} isDarkMode={isDarkMode} />
-          <About theme={theme} isDarkMode={isDarkMode} />
-          <Features theme={theme} isDarkMode={isDarkMode} />
-          <Courses theme={theme} isDarkMode={isDarkMode} />
-          <Steps theme={theme} isDarkMode={isDarkMode} />
-          <Team theme={theme} isDarkMode={isDarkMode} />
-          <Footer theme={theme} isDarkMode={isDarkMode} />
+        <Navbar isDarkMode={isDarkMode} toggleTheme={toggleTheme} theme={theme} />
+        <Hero theme={theme} isDarkMode={isDarkMode} />
+        <div id="hall-of-fame"><HallOfFame theme={theme} isDarkMode={isDarkMode} /></div>
+        <About theme={theme} isDarkMode={isDarkMode} />
+        <div id="registration-guide"><RegistrationGuide theme={theme} isDarkMode={isDarkMode} /></div>
+        <Features theme={theme} isDarkMode={isDarkMode} />
+        <Courses theme={theme} isDarkMode={isDarkMode} />
+        <Steps theme={theme} isDarkMode={isDarkMode} />
+        <Team theme={theme} isDarkMode={isDarkMode} />
+        <Footer theme={theme} isDarkMode={isDarkMode} />
       </div>
 
     </div>

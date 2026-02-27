@@ -30,7 +30,7 @@ export default function NotificationBell() {
             collection(db, 'notifications'),
             where('recipientId', '==', userId),
             orderBy('createdAt', 'desc'),
-            limit(20) // نجيب آخر 20 بس
+            limit(20) // نجيب آخر 20 بس لتقليل التكلفة
         );
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -39,11 +39,17 @@ export default function NotificationBell() {
                 ...doc.data(),
                 createdAt: doc.data().createdAt?.toDate() || new Date()
             }));
-            setNotifications(data);
-            setUnreadCount(data.filter(n => !n.read).length);
+
+            // 🛡️ Filter duplicates to fix double-firing bug (React StrictMode / Network overlap)
+            const uniqueData = Array.from(new Map(data.map(item => [item.id, item])).values());
+
+            setNotifications(uniqueData);
+            setUnreadCount(uniqueData.filter(n => !n.read).length);
         });
 
-        return () => unsubscribe();
+        return () => {
+            unsubscribe();
+        };
     }, [userId]);
 
     // غلق القائمة عند الضغط خارجها
@@ -71,14 +77,14 @@ export default function NotificationBell() {
         const now = new Date();
         const diff = Math.floor((now - date) / 1000); // seconds
         if (diff < 60) return 'الآن';
-        if (diff < 3600) return `منذ ${Math.floor(diff/60)} دقيقة`;
-        if (diff < 86400) return `منذ ${Math.floor(diff/3600)} ساعة`;
+        if (diff < 3600) return `منذ ${Math.floor(diff / 60)} دقيقة`;
+        if (diff < 86400) return `منذ ${Math.floor(diff / 3600)} ساعة`;
         return date.toLocaleDateString('ar-EG');
     };
 
     // Helper: أيقونة حسب النوع
     const getIcon = (type) => {
-        switch(type) {
+        switch (type) {
             case 'success': return '✅';
             case 'warning': return '⚠️';
             case 'error': return '🛑';
@@ -92,8 +98,8 @@ export default function NotificationBell() {
     return (
         <div className="relative" ref={dropdownRef}>
             {/* 🔔 زر الجرس */}
-            <button 
-                onClick={() => setIsOpen(!isOpen)} 
+            <button
+                onClick={() => setIsOpen(!isOpen)}
                 className="relative p-2 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 transition"
             >
                 <svg className="w-6 h-6 text-gray-600 dark:text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -129,8 +135,8 @@ export default function NotificationBell() {
                         ) : (
                             <div className="divide-y divide-gray-100 dark:divide-gray-700">
                                 {notifications.map(n => (
-                                    <div 
-                                        key={n.id} 
+                                    <div
+                                        key={n.id}
                                         className={`p-4 hover:bg-gray-50 dark:hover:bg-white/5 transition relative group ${!n.read ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}
                                     >
                                         <div className="flex gap-3">
@@ -145,8 +151,8 @@ export default function NotificationBell() {
                                                 <div className="flex items-center justify-between">
                                                     <span className="text-[10px] text-gray-400">{formatTime(n.createdAt)}</span>
                                                     {n.link && (
-                                                        <Link 
-                                                            href={n.link} 
+                                                        <Link
+                                                            href={n.link}
                                                             onClick={() => handleMarkRead(n.id)}
                                                             className="text-[10px] bg-blue-100 text-blue-600 px-2 py-1 rounded hover:bg-blue-200 font-bold"
                                                         >
@@ -157,7 +163,7 @@ export default function NotificationBell() {
                                             </div>
                                         </div>
                                         {/* زر الحذف بيظهر بس لما تقف على العنصر */}
-                                        <button 
+                                        <button
                                             onClick={(e) => { e.stopPropagation(); deleteNotification(n.id); }}
                                             className="absolute top-2 left-2 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
                                             title="حذف الإشعار"

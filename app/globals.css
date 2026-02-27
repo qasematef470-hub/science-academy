@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/* 🧭 Smooth Scrolling + Offset for Fixed Navbar */
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 5rem;
+}
+
 /* 🎨 لوحة ألوان التصميم الجديد */
 :root {
   --background: #050505;

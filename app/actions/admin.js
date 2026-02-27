@@ -94,6 +94,7 @@ export async function toggleSystemMode(modeName, isActive) {
 
 export async function getSystemModes() {
   try {
+    await assertAdmin();
     const doc = await adminDb.collection("settings").doc("system_config").get();
     return { success: true, data: doc.exists ? doc.data() : {} };
   } catch (error) { return { success: false, error: error.message }; }
@@ -101,6 +102,7 @@ export async function getSystemModes() {
 
 export async function getUniversityStructure() {
   try {
+    await assertAdmin();
     const docRef = adminDb.collection('settings').doc('university_structure');
     const docSnap = await docRef.get();
     return { success: true, data: docSnap.exists ? docSnap.data().structure || [] : [] };
@@ -205,8 +207,12 @@ export async function getInstructorCourses() {
       query = query.where('instructorId', '==', adminUid);
     }
 
-    // ترتيب الكورسات (الأحدث فالأقدم)
-    const snapshot = await query.orderBy("createdAt", "desc").limit(20).get(); // بنجيب أحدث 20 كورس بس للسرعة
+    // ترتيب الكورسات (الأحدث فالأقدم) واختيار الحقول المهمة لتسريع الأداء (Projection)
+    const snapshot = await query
+      .select('name', 'title', 'image', 'price', 'status', 'active', 'createdAt', 'updatedAt', 'startDate', 'university', 'college', 'section', 'year', 'isRevision', 'isVacation', 'instructorId', 'type')
+      .orderBy("createdAt", "desc")
+      .limit(2)
+      .get();
 
 
     const courses = snapshot.docs.map(doc => {
@@ -305,7 +311,13 @@ export async function updateCourseStatus(studentUid, courseId, action) {
 }
 export async function adminResetPassword(uid, newPassword) {
   try {
-    await assertAdmin();
+    const adminUid = await assertAdmin();
+    // Super Admin Check
+    const currentUser = await adminAuth.getUser(adminUid);
+    if (currentUser.email !== 'qasem@science-academy.com') {
+      throw new Error("غير مصرح: هذه الصلاحية للمدير العام فقط");
+    }
+
     await adminAuth.updateUser(uid, { password: newPassword });
     return { success: true, message: "تم تغيير الباسورد بنجاح 🔑" };
   } catch (error) { return { success: false, error: error.message }; }
@@ -356,6 +368,7 @@ export async function deleteResult(resultId) {
 
 export async function getLeaderboard(courseId) {
   try {
+    await assertAdmin();
     // الترتيب بيحصل في السيرفر (أسرع بـ 100 مرة) وبناخد أول 50 بس
     const snapshot = await adminDb.collection("results")
       .where("courseId", "==", courseId)
@@ -415,6 +428,7 @@ export async function getCourseSettings(courseId) {
 
 export async function getUniqueLectures(courseId) {
   try {
+    await assertAdmin();
     const snapshot = await adminDb.collection('questions_bank').where('courseId', '==', courseId).get();
     const stats = {}; // هنخزن هنا الإحصائيات
 
@@ -457,6 +471,7 @@ export async function addMaterialToCourse(courseId, materialData) {
 
 export async function getCourseMaterials(courseId) {
   try {
+    await assertAdmin();
     const docSnap = await adminDb.collection("courses").doc(courseId).get();
     if (docSnap.exists) {
       return { success: true, data: docSnap.data().materials || [] };
@@ -540,6 +555,7 @@ export async function addAnnouncement(text, targetCourseId = null, targetCourseN
 }
 export async function getAnnouncements() {
   try {
+    await assertAdmin();
     // هنجيب آخر 20 إعلان مثلاً
     const q = adminDb.collection("announcements").orderBy("createdAt", "desc").limit(20);
     const snap = await q.get();
@@ -605,7 +621,7 @@ export async function batchAddQuestions(courseId, questionsArray) {
 // 2. جلب الأسئلة لمادة معينة (للمصدر)
 export async function getQuestionsForCourse(courseId) {
   try {
-    // مش محتاجين assertAdmin هنا عادي، أو ممكن تضيفها لو تحب
+    await assertAdmin();
     const q = adminDb.collection('questions_bank').where('courseId', '==', courseId);
     const snap = await q.get();
 
@@ -768,5 +784,439 @@ export async function getQuestionDifficultyStats(courseId) {
     return { success: true, stats };
   } catch (e) {
     return { success: false, stats: { easy: 0, medium: 0, hard: 0, total: 0 } };
+  }
+}
+
+// ==========================================================
+// 👑 11. إدارة المسؤولين (Super Admin Only) - NEW
+// ==========================================================
+export async function addNewAdmin(email, password, name) {
+  try {
+    const adminUid = await assertAdmin();
+    const currentUser = await adminAuth.getUser(adminUid);
+    if (currentUser.email !== 'qasem@science-academy.com') {
+      throw new Error("غير مصرح: هذه الصلاحية للمدير العام فقط");
+    }
+
+    // 1. Create User in Auth
+    const userRecord = await adminAuth.createUser({
+      email,
+      password,
+      displayName: name,
+      emailVerified: true
+    });
+
+    // 2. Set Custom Claims optionally
+    await adminAuth.setCustomUserClaims(userRecord.uid, { role: 'admin' });
+
+    // 3. Save to Users Collection
+    await adminDb.collection('users').doc(userRecord.uid).set({
+      name,
+      email,
+      role: 'admin',
+      isLocked: false,
+      createdAt: FieldValue.serverTimestamp()
+    });
+
+    revalidatePath("/admin");
+    return { success: true, message: "تمت إضافة المسؤول بنجاح ✅" };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
+}
+
+export async function removeAdmin(uid) {
+  try {
+    const adminUid = await assertAdmin();
+    const currentUser = await adminAuth.getUser(adminUid);
+    if (currentUser.email !== 'qasem@science-academy.com') {
+      throw new Error("غير مصرح: هذه الصلاحية للمدير العام فقط");
+    }
+
+    // 1. Check if trying to delete the super admin
+    const targetUser = await adminAuth.getUser(uid);
+    if (targetUser.email === 'qasem@science-academy.com') {
+      throw new Error("لا يمكن حذف حساب المدير العام!");
+    }
+
+    // 2. Delete Auth and DB
+    await adminAuth.deleteUser(uid);
+    await adminDb.collection('users').doc(uid).delete();
+
+    revalidatePath("/admin");
+    return { success: true, message: "تم حذف حساب المسؤول بنجاح 🗑️" };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
+}
+
+// ==========================================================
+// 👑 9. Super Admin — إدارة المحاضرين (Instructor Management)
+// ==========================================================
+
+const SUPER_ADMIN_EMAIL = 'qasem@science-academy.com';
+
+async function assertSuperAdmin() {
+  const adminUid = await assertAdmin();
+  const adminUser = await adminAuth.getUser(adminUid);
+  if (adminUser.email !== SUPER_ADMIN_EMAIL) {
+    throw new Error("غير مصرح: هذه الصلاحية للمدير العام فقط");
+  }
+  return adminUid;
+}
+
+// 9.1 جلب جميع المحاضرين مع إحصائياتهم
+export async function getAllInstructors() {
+  try {
+    await assertSuperAdmin();
+
+    // 1. Fetch all admin users
+    const usersSnap = await adminDb.collection('users').where('role', '==', 'admin').get();
+    const instructors = [];
+
+    for (const doc of usersSnap.docs) {
+      const data = doc.data();
+
+      // 2. Count courses for this instructor
+      const coursesSnap = await adminDb.collection('courses').where('instructorId', '==', doc.id).get();
+      const courseIds = coursesSnap.docs.map(c => c.id);
+
+      // 3. Count unique enrolled students across this instructor's courses
+      let studentsCount = 0;
+      if (courseIds.length > 0) {
+        const allStudentsSnap = await adminDb.collection('users').where('role', '==', 'student').get();
+        const uniqueStudents = new Set();
+        allStudentsSnap.docs.forEach(studentDoc => {
+          const enrolled = studentDoc.data().enrolledCourses || [];
+          enrolled.forEach(e => {
+            if (courseIds.includes(e.courseId) && e.status === 'active') {
+              uniqueStudents.add(studentDoc.id);
+            }
+          });
+        });
+        studentsCount = uniqueStudents.size;
+      }
+
+      instructors.push({
+        uid: doc.id,
+        name: data.name || '',
+        email: data.email || '',
+        phone: data.phone || '',
+        image: data.image || '',
+        isLocked: data.isLocked || false,
+        coursesCount: courseIds.length,
+        studentsCount,
+      });
+    }
+
+    return { success: true, data: instructors };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
+}
+
+// 9.2 إضافة محاضر جديد
+export async function addNewInstructor({ name, email, password, phone, image }) {
+  try {
+    await assertSuperAdmin();
+    if (!name || !email || !password) throw new Error("الاسم والإيميل وكلمة السر مطلوبين");
+
+    // 1. Create Firebase Auth user
+    const userRecord = await adminAuth.createUser({
+      email,
+      password,
+      displayName: name,
+    });
+
+    // 2. Set admin custom claim
+    await adminAuth.setCustomUserClaims(userRecord.uid, { role: 'admin' });
+
+    // 3. Create user document
+    await adminDb.collection('users').doc(userRecord.uid).set({
+      name,
+      email,
+      phone: phone || '',
+      image: image || '',
+      role: 'admin',
+      isLocked: false,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    revalidatePath("/admin");
+    return { success: true, message: `تم إضافة المحاضر "${name}" بنجاح ✅` };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
+}
+
+// 9.3 تعديل صورة المحاضر
+export async function updateInstructorImage(uid, imageUrl) {
+  try {
+    await assertSuperAdmin();
+    if (!uid || !imageUrl) throw new Error("البيانات ناقصة");
+
+    await adminDb.collection('users').doc(uid).update({ image: imageUrl });
+
+    // Also update instructorImage on all courses belonging to this instructor
+    const coursesSnap = await adminDb.collection('courses').where('instructorId', '==', uid).get();
+    const batch = adminDb.batch();
+    coursesSnap.docs.forEach(doc => {
+      batch.update(doc.ref, { instructorImage: imageUrl });
+    });
+    await batch.commit();
+
+    revalidatePath("/admin");
+    return { success: true, message: "تم تحديث الصورة بنجاح ✅" };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
+}
+
+// 9.4 تصفير كورسات المحاضر (حذف كل كورساته + الامتحانات + بنك الأسئلة)
+export async function wipeInstructorCourses(instructorId) {
+  try {
+    await assertSuperAdmin();
+    if (!instructorId) throw new Error("معرف المحاضر مطلوب");
+
+    // Prevent wiping super admin's courses
+    const targetUser = await adminAuth.getUser(instructorId);
+    if (targetUser.email === SUPER_ADMIN_EMAIL) {
+      throw new Error("لا يمكن تصفير كورسات المدير العام!");
+    }
+
+    // 1. Get all courses for this instructor
+    const coursesSnap = await adminDb.collection('courses').where('instructorId', '==', instructorId).get();
+    if (coursesSnap.empty) return { success: true, message: "لا يوجد كورسات لهذا المحاضر" };
+
+    const batch = adminDb.batch();
+    let deletedCount = 0;
+
+    for (const courseDoc of coursesSnap.docs) {
+      const courseId = courseDoc.id;
+
+      // Delete related exam_configs
+      const examConfigs = await adminDb.collection('exam_configs').where('courseId', '==', courseId).get();
+      examConfigs.docs.forEach(doc => batch.delete(doc.ref));
+
+      // Delete related questions_bank
+      const questions = await adminDb.collection('questions_bank').where('courseId', '==', courseId).get();
+      questions.docs.forEach(doc => batch.delete(doc.ref));
+
+      // Delete the course itself
+      batch.delete(courseDoc.ref);
+      deletedCount++;
+    }
+
+    await batch.commit();
+    revalidatePath("/admin");
+    return { success: true, message: `تم حذف ${deletedCount} كورس وجميع بياناتهم بنجاح 🗑️` };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
+}
+
+// 9.5 حذف المحاضر نهائياً (تصفير + حذف الحساب)
+export async function nukeInstructorAccount(instructorId) {
+  try {
+    await assertSuperAdmin();
+    if (!instructorId) throw new Error("معرف المحاضر مطلوب");
+
+    // Prevent nuking the super admin
+    const targetUser = await adminAuth.getUser(instructorId);
+    if (targetUser.email === SUPER_ADMIN_EMAIL) {
+      throw new Error("لا يمكن حذف حساب المدير العام!");
+    }
+
+    // 1. Wipe all courses first
+    const wipeResult = await wipeInstructorCourses(instructorId);
+    if (!wipeResult.success && !wipeResult.message.includes("لا يوجد")) {
+      throw new Error("فشل في تصفير الكورسات: " + wipeResult.message);
+    }
+
+    // 2. Delete the user document
+    await adminDb.collection('users').doc(instructorId).delete();
+
+    // 3. Delete from Firebase Auth
+    await adminAuth.deleteUser(instructorId);
+
+    revalidatePath("/admin");
+    return { success: true, message: "تم حذف المحاضر وجميع بياناته نهائياً 💀" };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
+}
+
+// 9.6 تغيير كلمة سر المحاضر
+export async function forceChangeInstructorPassword(uid, newPassword) {
+  try {
+    await assertSuperAdmin();
+    if (!uid || !newPassword) throw new Error("البيانات ناقصة");
+    if (newPassword.length < 6) throw new Error("كلمة السر يجب أن تكون 6 أحرف على الأقل");
+
+    // Prevent changing super admin password (REMOVED: The user requested to be able to change their own password)
+    // const targetUser = await adminAuth.getUser(uid);
+    // if (targetUser.email === SUPER_ADMIN_EMAIL) {
+    //   throw new Error("لا يمكن تغيير كلمة سر المدير العام من هنا!");
+    // }
+
+    await adminAuth.updateUser(uid, { password: newPassword });
+
+    return { success: true, message: "تم تغيير كلمة السر بنجاح 🔑" };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
+}
+
+// ==========================================================
+// ☢️ 10. تصفير قاعدة البيانات بالكامل (Nuke Database — Super Admin Only)
+// ==========================================================
+export async function nukeEntireDatabase() {
+  try {
+    await assertSuperAdmin();
+
+    const details = {};
+
+    // 1. حذف جميع الطلاب من Auth + Firestore
+    const studentsSnap = await adminDb.collection('users').where('role', '==', 'student').get();
+    let deletedStudents = 0;
+    for (const doc of studentsSnap.docs) {
+      try {
+        await adminAuth.deleteUser(doc.id);
+      } catch (e) {
+        console.warn(`⚠️ Failed to delete auth for ${doc.id}:`, e.message);
+      }
+      await doc.ref.delete();
+      deletedStudents++;
+    }
+    details.students = deletedStudents;
+
+    // 2. تصفير الكوليكشنز المحددة (بدون settings وبدون admin users)
+    const collectionsToWipe = [
+      'courses', 'questions_bank', 'results', 'user_progress',
+      'announcements', 'exam_configs', 'exam_settings', 'exam_exceptions', 'cheating_logs'
+    ];
+
+    for (const colName of collectionsToWipe) {
+      let deletedCount = 0;
+      let snapshot = await adminDb.collection(colName).limit(500).get();
+
+      while (!snapshot.empty) {
+        const batch = adminDb.batch();
+        snapshot.docs.forEach(doc => batch.delete(doc.ref));
+        await batch.commit();
+        deletedCount += snapshot.docs.length;
+        snapshot = await adminDb.collection(colName).limit(500).get();
+      }
+      details[colName] = deletedCount;
+    }
+
+    revalidatePath("/admin");
+    return { success: true, message: "☢️ تم تصفير قاعدة البيانات بالكامل (ما عدا الإدارة والإعدادات)", details };
+  } catch (error) {
+    console.error("Nuke Error:", error);
+    return { success: false, message: error.message };
+  }
+}
+
+// ==========================================================
+// 👥 11. دليل حسابات المنصة (Global Students — Super Admin Only)
+// ==========================================================
+export async function getGlobalStudents(lastDocId = null, searchTerm = "") {
+  try {
+    await assertSuperAdmin();
+
+    const mapStudent = (doc) => {
+      const data = doc.data();
+      return {
+        uid: doc.id,
+        name: data.name || '',
+        phone: data.phone || '',
+        university: data.university || '',
+        college: data.college || '',
+        year: data.year || '',
+        section: data.section || '',
+        enrolledCoursesCount: (data.enrolledCourses || []).length,
+      };
+    };
+
+    // إذا فيه بحث → نجيب كل اليوزرز ونفلتر في الذاكرة
+    if (searchTerm && searchTerm.trim().length > 0) {
+      const term = searchTerm.trim().toLowerCase();
+      const snapshot = await adminDb.collection('users').limit(1000).get();
+
+      const filtered = [];
+      snapshot.docs.forEach(doc => {
+        const data = doc.data();
+        if (data.role === 'admin') return; // تجاهل المحاضرين
+        const name = (data.name || '').toLowerCase();
+        const phone = (data.phone || '');
+        if (name.includes(term) || phone.includes(term)) {
+          filtered.push(mapStudent(doc));
+        }
+      });
+
+      return { success: true, data: filtered.slice(0, 50), hasMore: false, lastDocId: null };
+    }
+
+    // بدون بحث → pagination بـ 10 (بدون orderBy عشان مش محتاجين index)
+    let query = adminDb.collection('users').limit(10);
+
+    if (lastDocId) {
+      const lastDoc = await adminDb.collection('users').doc(lastDocId).get();
+      if (lastDoc.exists) {
+        query = adminDb.collection('users').startAfter(lastDoc).limit(10);
+      }
+    }
+
+    const snapshot = await query.get();
+
+    // فلترة الأدمنز في الذاكرة
+    const students = [];
+    snapshot.docs.forEach(doc => {
+      const data = doc.data();
+      if (data.role !== 'admin') {
+        students.push(mapStudent(doc));
+      }
+    });
+
+    const newLastDocId = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1].id : null;
+
+    return {
+      success: true,
+      data: students,
+      hasMore: snapshot.docs.length === 10,
+      lastDocId: newLastDocId
+    };
+  } catch (error) {
+    console.error("Global Students Error:", error);
+    return { success: false, message: error.message, data: [] };
+  }
+}
+
+// ==========================================================
+// 🏠 12. إعدادات الصفحة الرئيسية (Landing Page Settings)
+// ==========================================================
+export async function updateRegistrationVideoUrl(url) {
+  try {
+    await assertSuperAdmin();
+    await adminDb.collection('settings').doc('system_config').set({
+      registrationVideoUrl: url
+    }, { merge: true });
+    revalidatePath('/');
+    return { success: true, message: "تم تحديث رابط الفيديو بنجاح ✅" };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
+}
+
+export async function getRegistrationVideoUrl() {
+  try {
+    const doc = await adminDb.collection('settings').doc('system_config').get();
+    if (doc.exists && doc.data().registrationVideoUrl) {
+      return { success: true, videoId: doc.data().registrationVideoUrl };
+    }
+    return { success: true, videoId: "YsmGiwCnHhE" }; // Fallback default
+  } catch (error) {
+    return { success: true, videoId: "YsmGiwCnHhE" }; // Fallback on error too
   }
 }

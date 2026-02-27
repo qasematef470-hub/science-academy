@@ -20,7 +20,7 @@ const Icons = {
 };
 export default function Sidebar({ activeTab, setActiveTab, isSidebarOpen, adminData, pendingCount = 0, onCloseMobile }) {
     const isDarkMode = typeof window !== 'undefined' ? localStorage.getItem('theme') === 'dark' : true;
-    
+
     const theme = {
         sidebar: isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-gray-200',
         textSec: isDarkMode ? 'text-slate-400' : 'text-slate-500',
@@ -37,12 +37,11 @@ export default function Sidebar({ activeTab, setActiveTab, isSidebarOpen, adminD
         { id: 'materials', label: 'المحتوى', icon: <Icons.Book /> },
         { id: 'announcements', label: 'الإعلانات', icon: <Icons.Megaphone /> },
         { id: 'results', label: 'النتائج', icon: <Icons.Chart /> },
-        { id: 'courses', label: 'إدارة الكورسات', icon: <Icons.Home /> },
-        { id: 'settings', label: 'الإعدادات', icon: <Icons.Cog /> }
+        { id: 'courses', label: 'إدارة الكورسات', icon: <Icons.Home /> }
     ];
 
     return (
-        <aside 
+        <aside
             className={`fixed md:sticky top-0 right-0 h-screen z-50 transition-all duration-300 transform 
             ${isSidebarOpen ? 'translate-x-0 w-72 md:w-64' : 'translate-x-full md:translate-x-0 md:w-20'} 
             ${theme.sidebar} flex flex-col shadow-2xl border-l`}
@@ -61,8 +60,8 @@ export default function Sidebar({ activeTab, setActiveTab, isSidebarOpen, adminD
 
             {/* زرار العودة للموقع */}
             <div className="p-3">
-                <Link 
-                    href="/" 
+                <Link
+                    href="/"
                     className={`flex items-center gap-3 px-3 py-3 rounded-xl text-xs font-black transition-all duration-200 text-emerald-500 bg-emerald-500/5 hover:bg-emerald-500/10 ${!isSidebarOpen && 'justify-center'}`}
                 >
                     <span>🌐</span>
@@ -89,7 +88,7 @@ export default function Sidebar({ activeTab, setActiveTab, isSidebarOpen, adminD
                             <span className={`${isActive ? 'text-white' : 'text-indigo-500'} transition-colors`}>
                                 {item.icon}
                             </span>
-                            
+
                             {isSidebarOpen && <span className="truncate">{item.label}</span>}
 
                             {/* إشعار الطلاب المعلقين */}
@@ -121,18 +120,22 @@ export default function Sidebar({ activeTab, setActiveTab, isSidebarOpen, adminD
                     </div>
                 )}
 
-                <button 
+                <button
                     onClick={async () => {
-                        if(!confirm("هل تريد تسجيل الخروج؟")) return;
+                        if (!confirm("هل تريد تسجيل الخروج؟")) return;
                         try {
-                            await Promise.race([
-                                signOut(auth),
-                                new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2000))
-                            ]);
-                        } catch (e) {}
-                        await logout();
-                        window.location.href = "/login";
-                    }} 
+                            await signOut(auth);
+                            localStorage.clear();
+                            sessionStorage.clear();
+                            document.cookie = "firebaseToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+                            document.cookie = "userRole=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+                            await logout();
+                        } catch (e) {
+                            console.error("Logout Error:", e);
+                        } finally {
+                            window.location.href = '/login';
+                        }
+                    }}
                     className={`w-full flex items-center gap-3 p-3 text-red-500 hover:bg-red-500/10 rounded-xl transition-all text-xs font-black ${!isSidebarOpen && 'justify-center'}`}
                 >
                     <Icons.Logout /> {isSidebarOpen && "تسجيل الخروج"}

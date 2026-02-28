@@ -328,7 +328,7 @@ export default function CoursePlayerPage() {
                             {course?.name}
                         </h1>
                         <p className="text-emerald-100 text-sm md:text-base font-medium leading-relaxed max-w-2xl">
-                            {course?.details || course?.description || 'كورس تعليمي شامل للمرحلة الثانوية'}
+                            {course?.details || course?.description || 'كورس تعليمي شامل'}
                         </p>
                         <div className="flex items-center gap-3 flex-wrap pt-1">
                             <div className="flex items-center gap-2 bg-black/20 pr-2 pl-4 py-1.5 rounded-full">

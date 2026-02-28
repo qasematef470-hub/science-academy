@@ -178,7 +178,7 @@ export default function CoursesTab({ courses, onRefresh, isDarkMode, adminData, 
             price: course.price || '',
             contactPhone: course.contactPhone || '',
             startDate: course.startDate || '',
-            details: course.details || '',
+            details: course.details || course.description || '',
             image: course.image || '',
         });
         setEditingId(course.id);

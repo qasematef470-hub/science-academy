@@ -207,11 +207,9 @@ export async function getInstructorCourses() {
       query = query.where('instructorId', '==', adminUid);
     }
 
-    // ترتيب الكورسات (الأحدث فالأقدم) واختيار الحقول المهمة لتسريع الأداء (Projection)
+    // ترتيب الكورسات (الأحدث فالأقدم) - بدون Projection عشان الـ Curriculum Builder محتاج كل الداتا (modules)
     const snapshot = await query
-      .select('name', 'title', 'image', 'price', 'status', 'active', 'createdAt', 'updatedAt', 'startDate', 'university', 'college', 'section', 'year', 'isRevision', 'isVacation', 'instructorId', 'type')
       .orderBy("createdAt", "desc")
-      .limit(2)
       .get();
 
 

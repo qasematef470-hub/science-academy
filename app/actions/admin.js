@@ -2,7 +2,7 @@
 
 import { adminDb, adminAuth } from "@/lib/firebase-admin-config";
 import { FieldValue } from "firebase-admin/firestore";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { cookies } from "next/headers";
 import { sendNotification } from "@/app/actions/notifications";
 
@@ -142,7 +142,12 @@ export async function createCourse(courseData) {
     if (courseData.university && courseData.college) {
       await syncUniversityStructure(courseData.university, courseData.college, courseData.year, courseData.section);
     }
+    revalidateTag('courses');
     revalidatePath("/admin");
+    revalidatePath("/dashboard");
+    revalidatePath("/study");
+    revalidatePath("/vacation");
+    revalidatePath("/final-revision");
     return { success: true, id: docRef.id, message: "تم إنشاء الكورس والمنهج المطور بنجاح ✅" };
   } catch (error) {
     return { success: false, message: error.message };
@@ -156,10 +161,16 @@ export async function updateCourse(courseId, courseData) {
     const updatedData = {
       ...courseData,
       price: Number(courseData.price) || 0,
-      // 🔥 التعديل الجديد: ضمان تحديث المنهج
-      modules: courseData.modules || [],
       updatedAt: FieldValue.serverTimestamp(),
     };
+
+    // 🛡️ حماية المنهج: لا تكتب modules أو materials إلا لو اتبعتوا فعلاً
+    if (!courseData.hasOwnProperty('modules')) {
+      delete updatedData.modules;
+    }
+    if (!courseData.hasOwnProperty('materials')) {
+      delete updatedData.materials;
+    }
 
     await adminDb.collection('courses').doc(courseId).update(updatedData);
 
@@ -167,7 +178,12 @@ export async function updateCourse(courseId, courseData) {
       await syncUniversityStructure(courseData.university, courseData.college, courseData.year, courseData.section);
     }
 
+    revalidateTag('courses');
     revalidatePath("/admin");
+    revalidatePath("/dashboard");
+    revalidatePath("/study");
+    revalidatePath("/vacation");
+    revalidatePath("/final-revision");
     return { success: true, message: "تم تحديث الكورس" };
   } catch (error) {
     return { success: false, message: error.message };
@@ -178,7 +194,12 @@ export async function deleteCourse(courseId) {
   try {
     await assertAdmin();
     await adminDb.collection("courses").doc(courseId).delete();
+    revalidateTag('courses');
     revalidatePath("/admin");
+    revalidatePath("/dashboard");
+    revalidatePath("/study");
+    revalidatePath("/vacation");
+    revalidatePath("/final-revision");
     return { success: true, message: "تم حذف الكورس" };
   } catch (error) {
     return { success: false, message: error.message };

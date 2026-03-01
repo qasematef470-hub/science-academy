@@ -39,7 +39,7 @@ export default function CourseCard({ course, isDark = true, status = 'not-enroll
                     <img
                         src={course.image}
                         alt={course.name || course.courseName}
-                        fetchpriority="high"
+                        fetchPriority="high"
                         onError={(e) => { e.currentTarget.src = '/assets/images/logo.png'; }}
                         className="w-full h-full object-cover transition duration-700 group-hover:scale-110 opacity-80 group-hover:opacity-100"
                     />

@@ -273,7 +273,7 @@ const getCachedActiveCourses = unstable_cache(
         });
     },
     ['all-active-courses'],
-    { revalidate: 3600 }
+    { revalidate: 60, tags: ['courses'] }
 );
 
 export async function getAllCourses(filters = {}) {

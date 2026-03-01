@@ -39,6 +39,7 @@ export default function CourseCard({ course, isDark = true, status = 'not-enroll
                     <img
                         src={course.image}
                         alt={course.name || course.courseName}
+                        fetchpriority="high"
                         onError={(e) => { e.currentTarget.src = '/assets/images/logo.png'; }}
                         className="w-full h-full object-cover transition duration-700 group-hover:scale-110 opacity-80 group-hover:opacity-100"
                     />
@@ -81,6 +82,7 @@ export default function CourseCard({ course, isDark = true, status = 'not-enroll
                     <img
                         src={course.instructorImage || '/assets/images/logo.png'}
                         alt="instructor"
+                        loading="lazy"
                         onError={(e) => { e.currentTarget.src = '/assets/images/logo.png'; }}
                         className="w-8 h-8 rounded-full border-2 border-blue-500/30 object-cover shadow-md bg-white/5"
                     />

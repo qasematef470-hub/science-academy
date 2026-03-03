@@ -153,10 +153,12 @@ export async function getStudentCourseProgress(studentUid, courseId) {
     try {
         if (!studentUid || !courseId) throw new Error("Missing parameters");
 
-        // 1. Fetch Video Views
+        // 1. Fetch Video Views + Sessions
         const progressRef = adminDb.collection('user_progress').doc(`${studentUid}_${courseId}`);
         const progressSnap = await progressRef.get();
-        const views = progressSnap.exists ? (progressSnap.data().views || {}) : {};
+        const progressDoc = progressSnap.exists ? progressSnap.data() : {};
+        const views = progressDoc.views || {};
+        const sessions = progressDoc.sessions || {};
 
         // 2. Fetch Exam Results for this course
         const resultsSnap = await adminDb.collection('results')
@@ -230,7 +232,7 @@ export async function getStudentCourseProgress(studentUid, courseId) {
             ex.remainingAttempts = Math.max(0, ex.maxAttempts - ex.attemptsFinished);
         }
 
-        return { success: true, data: { views, exams } };
+        return { success: true, data: { views, sessions, exams } };
 
     } catch (error) {
         console.error("Progress fetch error:", error);
@@ -238,24 +240,37 @@ export async function getStudentCourseProgress(studentUid, courseId) {
     }
 }
 
-export async function recordVideoView(studentUid, courseId, lessonKey) {
+export async function startVideoSession(studentUid, courseId, lessonKey) {
     try {
         if (!studentUid || !courseId || !lessonKey) throw new Error("Missing parameters");
 
         const progressRef = adminDb.collection('user_progress').doc(`${studentUid}_${courseId}`);
+        const progressSnap = await progressRef.get();
+        const progressDoc = progressSnap.exists ? progressSnap.data() : {};
 
-        // ✅ Use the index-based lessonKey (e.g. "mod0_les1") for uniqueness.
-        // The frontend generates this key via getLessonKey(mIdx, lIdx).
+        // 🛡️ Check if an active session already exists for this lesson
+        const existingExpiry = progressDoc.sessions?.[lessonKey] || 0;
+        if (Date.now() < existingExpiry) {
+            // Session still active → no deduction, just return the existing expiry
+            return { success: true, alreadyActive: true, expiresAt: existingExpiry };
+        }
+
+        // 🎟️ No active session → deduct 1 view and open a new 1-hour window
+        const expiresAt = Date.now() + (60 * 60 * 1000); // 60 minutes from now
+
         await progressRef.set({
             views: {
                 [lessonKey]: FieldValue.increment(1)
             },
+            sessions: {
+                [lessonKey]: expiresAt
+            },
             updatedAt: FieldValue.serverTimestamp()
         }, { merge: true });
 
-        return { success: true };
+        return { success: true, alreadyActive: false, expiresAt };
     } catch (error) {
-        console.error("Record view error:", error);
+        console.error("Start session error:", error);
         return { success: false, message: error.message };
     }
 }

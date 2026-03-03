@@ -3,14 +3,14 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { auth } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { useRouter, useParams } from 'next/navigation';
-import { getCourseDetails, getStudentCourseProgress, getStudentDashboardData, recordVideoView, enrollStudent } from '@/app/actions/student';
+import { getCourseDetails, getStudentCourseProgress, getStudentDashboardData, startVideoSession, enrollStudent } from '@/app/actions/student';
 import Link from 'next/link';
 
 export default function CoursePlayerPage() {
     const { courseId } = useParams();
     const router = useRouter();
     const [studentData, setStudentData] = useState(null);
-    const [progressData, setProgressData] = useState({ views: {}, exams: {} });
+    const [progressData, setProgressData] = useState({ views: {}, sessions: {}, exams: {} });
     const [loading, setLoading] = useState(true);
     const [course, setCourse] = useState(null);
     const [activeModuleIndex, setActiveModuleIndex] = useState(0);
@@ -21,9 +21,7 @@ export default function CoursePlayerPage() {
     const [isFullscreen, setIsFullscreen] = useState(false);
     const watermarkRef = useRef(null);
     const videoContainerRef = useRef(null);
-    const viewTimerRef = useRef(null);
-    const viewedInSessionRef = useRef(new Set());
-    const [grantedLessons, setGrantedLessons] = useState({});
+    const [startingSession, setStartingSession] = useState(false);
     const [showSubscribeModal, setShowSubscribeModal] = useState(false);
     const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('cash');
     const [submittingEnroll, setSubmittingEnroll] = useState(false);
@@ -33,7 +31,7 @@ export default function CoursePlayerPage() {
             setLoading(true);
             const [res, progressRes, dashRes] = await Promise.all([
                 getCourseDetails(courseId, uid),
-                uid ? getStudentCourseProgress(uid, courseId) : Promise.resolve({ success: true, data: { views: {}, exams: {} } }),
+                uid ? getStudentCourseProgress(uid, courseId) : Promise.resolve({ success: true, data: { views: {}, sessions: {}, exams: {} } }),
                 uid ? getStudentDashboardData(uid) : Promise.resolve({ success: true, data: { user: null } })
             ]);
 
@@ -228,62 +226,40 @@ export default function CoursePlayerPage() {
     }, [course, progressData]);
 
     // ==========================================================
-    // 👁️ Video View Tracking
+    // 🎟️ Start Video Session Handler (1-Hour Ticket)
     // ==========================================================
-    useEffect(() => {
-        // 1. FIRST, clear any existing timer
-        if (viewTimerRef.current) clearTimeout(viewTimerRef.current);
-
-        if (!activeLesson || activeLesson.type !== 'video' || activeLesson.isPrerequisiteLocked) return;
-        if (activeModuleIndex < 0 || activeLessonIndex < 0) return;
-
+    const handleStartSession = async (lessonKey) => {
         const uid = auth.currentUser?.uid || studentData?.uid;
-        if (!uid) return;
+        if (!uid || startingSession) return;
 
-        // 🔑 Use index-based key for absolute uniqueness
-        const lessonKey = getLessonKey(activeModuleIndex, activeLessonIndex);
-
-        // 2. If already viewed in this page load, ignore
-        if (viewedInSessionRef.current.has(lessonKey)) return;
-
-        const currentViews = Number(progressData?.views?.[lessonKey]) || 0;
-        const maxViews = Number(activeLesson.maxViews) || 3;
-
-        // 3. If exhausted BEFORE the 30 seconds, return
-        if (currentViews >= maxViews) return;
-
-        console.log(`[VIEW] ⏳ 30s timer started for: "${activeLesson.title}" (key: ${lessonKey})`);
-
-        // 4. Start new 30-second timer
-        viewTimerRef.current = setTimeout(() => {
-            if (viewedInSessionRef.current.has(lessonKey)) return;
-
-            console.log(`[VIEW] ✅ Deducting view for: "${activeLesson.title}" (key: ${lessonKey})`);
-
-            viewedInSessionRef.current.add(lessonKey);
-            setGrantedLessons(prev => ({ ...prev, [lessonKey]: true }));
-
-            setProgressData(prev => ({
-                ...prev,
-                views: {
-                    ...(prev?.views || {}),
-                    [lessonKey]: (prev?.views?.[lessonKey] || 0) + 1
-                }
-            }));
-
-            recordVideoView(uid, courseId, lessonKey).catch(err => {
-                console.error("Failed to record view on backend:", err);
-            });
-        }, 30000);
-
-        // 5. Cleanup
-        return () => {
-            if (viewTimerRef.current) {
-                clearTimeout(viewTimerRef.current);
+        setStartingSession(true);
+        try {
+            const res = await startVideoSession(uid, courseId, lessonKey);
+            if (res.success) {
+                // Update local state so the video reveals instantly
+                setProgressData(prev => ({
+                    ...prev,
+                    views: {
+                        ...(prev?.views || {}),
+                        [lessonKey]: res.alreadyActive
+                            ? (prev?.views?.[lessonKey] || 0)
+                            : (prev?.views?.[lessonKey] || 0) + 1
+                    },
+                    sessions: {
+                        ...(prev?.sessions || {}),
+                        [lessonKey]: res.expiresAt
+                    }
+                }));
+            } else {
+                alert('❌ حدث خطأ: ' + (res.message || 'حاول مرة أخرى'));
             }
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeModuleIndex, activeLessonIndex, courseId, studentData?.uid]);
+        } catch (err) {
+            console.error('Session start error:', err);
+            alert('❌ حدث خطأ في الاتصال بالسيرفر');
+        } finally {
+            setStartingSession(false);
+        }
+    };
 
     if (loading) return (
         <div className="py-20 flex flex-col items-center justify-center gap-4 bg-[#050505] min-h-screen">
@@ -491,9 +467,11 @@ export default function CoursePlayerPage() {
                                 const maxViews = Number(activeLesson.maxViews) || 3;
                                 const currentViews = Number(progressData?.views?.[lessonKey]) || 0;
                                 const viewsLeft = maxViews - currentViews;
+                                const sessionExpiry = progressData?.sessions?.[lessonKey] || 0;
+                                const isSessionActive = Date.now() < sessionExpiry;
 
-                                // 🚫 Block: نمنع الفيديو لو العداد <= 0 (ولم يحصل على إذن مؤقت في هذه الجلسة)
-                                if (viewsLeft <= 0 && !grantedLessons[lessonKey]) {
+                                // 🚫 Case A: No views left AND no active session
+                                if (viewsLeft <= 0 && !isSessionActive) {
                                     return (
                                         <div className="aspect-video bg-black flex flex-col items-center justify-center text-center p-8 border border-red-500/20 rounded-[2rem] md:rounded-[3rem] relative overflow-hidden shadow-2xl">
                                             <div className="absolute inset-0 bg-red-500/5"></div>
@@ -503,7 +481,66 @@ export default function CoursePlayerPage() {
                                         </div>
                                     );
                                 }
+
+                                // 🎟️ Case B: Has views left but NO active session → Show Start Card
+                                if (!isSessionActive) {
+                                    return (
+                                        <div className={`rounded-[2rem] md:rounded-[3rem] overflow-hidden border ${isDark ? 'bg-[#0f121a] border-white/5' : 'bg-white border-gray-100'} shadow-2xl animate-fade-in`}>
+                                            <div className="relative py-16 md:py-20 px-6 md:px-10 flex flex-col items-center justify-center text-center gap-6 overflow-hidden">
+                                                {/* ✨ Decorative background effects */}
+                                                <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/[0.03] via-blue-500/[0.02] to-purple-500/[0.03] pointer-events-none"></div>
+                                                <div className="absolute top-[-80px] right-[-60px] w-56 h-56 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
+                                                <div className="absolute bottom-[-60px] left-[-40px] w-44 h-44 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+                                                {/* 🎟️ Icon */}
+                                                <div className="relative">
+                                                    <div className="absolute inset-0 bg-emerald-500 blur-2xl opacity-20 rounded-full scale-150"></div>
+                                                    <div className="w-24 h-24 rounded-[2rem] bg-gradient-to-br from-emerald-500/20 to-blue-500/10 flex items-center justify-center border border-emerald-500/20 relative z-10">
+                                                        <span className="text-5xl md:text-6xl">🎟️</span>
+                                                    </div>
+                                                </div>
+
+                                                {/* Text */}
+                                                <div className="space-y-3 max-w-lg relative z-10">
+                                                    <h3 className="text-xl md:text-2xl font-black bg-gradient-to-r from-emerald-400 to-blue-400 bg-clip-text text-transparent">
+                                                        جلسة مشاهدة جديدة
+                                                    </h3>
+                                                    <p className={`text-sm md:text-base font-bold leading-relaxed ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                        لديك <span className="text-emerald-400 font-black">{viewsLeft}</span> مشاهدات متبقية.
+                                                        ببدء المشاهدة سيتم خصم محاولة وسيظل الفيديو متاحاً لك بحرية لمدة
+                                                        <span className="text-blue-400 font-black"> ساعة واحدة (60 دقيقة)</span>.
+                                                    </p>
+                                                </div>
+
+                                                {/* CTA Button */}
+                                                <button
+                                                    onClick={() => handleStartSession(lessonKey)}
+                                                    disabled={startingSession}
+                                                    className="relative z-10 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 disabled:from-gray-600 disabled:to-gray-500 disabled:cursor-not-allowed text-white px-10 py-4 rounded-2xl font-black shadow-xl shadow-emerald-600/20 transition-all active:scale-95 flex items-center gap-3 text-base md:text-lg border-b-4 border-emerald-700 disabled:border-gray-600 active:border-b-0 active:translate-y-1"
+                                                >
+                                                    {startingSession ? (
+                                                        <>
+                                                            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                                            <span>جاري فتح الجلسة... ⏳</span>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <span>▶️</span>
+                                                            <span>تأكيد وبدء المشاهدة</span>
+                                                        </>
+                                                    )}
+                                                </button>
+
+                                                {/* Subtle info */}
+                                                <p className="text-[11px] text-gray-600 font-bold relative z-10">
+                                                    💡 يمكنك إغلاق الصفحة والعودة خلال الساعة دون خصم مشاهدة إضافية
+                                                </p>
+                                            </div>
+                                        </div>
+                                    );
+                                }
                             }
+                            // 🎬 Case C: Active session (or non-video lesson) → Show player
                             return (
                                 <div className={`rounded-[2rem] md:rounded-[3rem] overflow-hidden border ${isDark ? 'bg-[#0f121a] border-white/5' : 'bg-white border-gray-100'} shadow-2xl animate-fade-in`}>
 
@@ -592,13 +629,18 @@ export default function CoursePlayerPage() {
                                                     <span className="text-white font-semibold text-sm">{activeLesson.duration} دقيقة</span>
                                                 </div>
                                             )}
-                                            {/* Row 3: Views remaining */}
+                                            {/* Row 3: Views remaining + Session status */}
                                             <div className="flex items-center gap-3 px-5 py-3.5">
                                                 <span className="text-base shrink-0">🔒</span>
                                                 <span className="text-gray-300 font-bold text-sm min-w-[130px] shrink-0">عدد المشاهدات المتبقية ليك :</span>
                                                 <span className={`font-semibold text-sm ${Math.max(0, (Number(activeLesson.maxViews) || 3) - (Number(progressData?.views?.[getLessonKey(activeModuleIndex, activeLessonIndex)]) || 0)) === 0 ? 'text-red-500' : 'text-emerald-400'}`}>
                                                     {Math.max(0, (Number(activeLesson.maxViews) || 3) - (Number(progressData?.views?.[getLessonKey(activeModuleIndex, activeLessonIndex)]) || 0))} مشاهدات
                                                 </span>
+                                                {Date.now() < (progressData?.sessions?.[getLessonKey(activeModuleIndex, activeLessonIndex)] || 0) && (
+                                                    <span className="text-emerald-400 text-xs font-black bg-emerald-400/10 px-2.5 py-1 rounded-full animate-pulse mr-auto">
+                                                        🔓 جلسة المشاهدة مفتوحة الآن
+                                                    </span>
+                                                )}
                                             </div>
                                         </div>
                                     )}

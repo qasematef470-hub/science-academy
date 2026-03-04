@@ -10,7 +10,8 @@ export async function middleware(request: NextRequest) {
 
   // 2. تحديد المسارات
   const isAdminRoute = pathname.startsWith('/admin');
-  const isStudentRoute = (pathname.startsWith('/dashboard') && !pathname.startsWith('/dashboard/course')) || pathname.startsWith('/exam');
+  const isExamReview = pathname.includes('/review/');
+  const isStudentRoute = (pathname.startsWith('/dashboard') && !pathname.startsWith('/dashboard/course')) || (pathname.startsWith('/exam') && !isExamReview);
   const isAuthRoute = pathname === '/login' || pathname === '/signup';
 
   // 🔴 الحالة الأولى: غير مسجل دخول وبيحاول يدخل منطقة محمية

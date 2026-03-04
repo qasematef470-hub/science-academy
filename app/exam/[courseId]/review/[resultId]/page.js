@@ -12,11 +12,11 @@ export default function ExamReviewPage() {
     const params = useParams();
     const { courseId, resultId } = params;
     useEffect(() => {
-          document.title = "المراجعة | Science Academy";
-        }, []);
+        document.title = "المراجعة | Science Academy";
+    }, []);
 
     const [loading, setLoading] = useState(true);
-    const [data, setData] = useState(null); 
+    const [data, setData] = useState(null);
     const [error, setError] = useState(null);
     const [isInstructor, setIsInstructor] = useState(false);
 
@@ -32,21 +32,17 @@ export default function ExamReviewPage() {
                 if (!resultSnap.exists()) { setError("النتيجة غير موجودة."); setLoading(false); return; }
                 const resultData = resultSnap.data();
 
-               // التحقق من الملكية
-                if (resultData.studentId !== user.uid) {
-                    // لو مش الطالب، نتأكد هل أنت مدرس المادة؟
-                    const courseSnap = await getDoc(doc(db, 'courses', courseId));
-                    
-                    // لو الكورس موجود والـ instructorId هو نفسه الـ user.uid
-                    if (courseSnap.exists() && courseSnap.data().instructorId === user.uid) {
-                        setIsInstructor(true); // تمام أنت المدرس
-                    } else {
-                        // لو لا طالب ولا مدرس المادة => اطرده
-                        setError("غير مصرح لك بدخول هذه الصفحة (خاصة بالطالب ومدرس المادة فقط)."); 
-                        setLoading(false); 
-                        return; 
-                    }
+                // التحقق من الصلاحيات
+                const isStudentOwner = resultData.studentId === user.uid;
+                const userDoc = await getDoc(doc(db, 'users', user.uid));
+                const isAdmin = userDoc.exists() && userDoc.data().role === 'admin';
+
+                if (!isStudentOwner && !isAdmin) {
+                    setError("غير مصرح لك بدخول هذه الصفحة.");
+                    setLoading(false);
+                    return;
                 }
+                if (isAdmin) { setIsInstructor(true); }
 
                 // 2. تحديد الأسئلة المطلوبة
                 const qIds = resultData.questionIds || [];
@@ -58,13 +54,13 @@ export default function ExamReviewPage() {
                 // 3. جلب الأسئلة من بنك الأسئلة
                 const questionsPromises = qIds.map(id => getDoc(doc(db, 'questions_bank', id)));
                 const questionsSnaps = await Promise.all(questionsPromises);
-                
+
                 const processedQuestions = questionsSnaps
                     .filter(snap => snap.exists())
                     .map(snap => {
                         const qData = snap.data();
                         const qId = snap.id;
-                        
+
                         // 🔥 أهم جزء: استعادة الترتيب العشوائي
                         // بنشوف هل النتيجة متسجل فيها variants لهذا السؤال ولا لأ
                         const variantIndices = resultData.variants ? resultData.variants[qId] : null;
@@ -102,7 +98,7 @@ export default function ExamReviewPage() {
 
     return (
         <div className="min-h-screen bg-[#0B1120] text-white dir-rtl font-sans pb-20" dir="rtl">
-            
+
             {/* Header */}
             <header className="bg-[#131B2E]/80 backdrop-blur-md border-b border-white/10 p-4 sticky top-0 z-50 shadow-lg">
                 <div className="max-w-4xl mx-auto flex justify-between items-center">
@@ -111,7 +107,7 @@ export default function ExamReviewPage() {
                         <p className="text-sm text-gray-400 mt-1">{result.studentName} | {new Date(result.submittedAt?.toDate()).toLocaleDateString('ar-EG')}</p>
                     </div>
                     <div className="flex flex-col items-end">
-                        <div className={`px-4 py-2 rounded-xl font-black text-2xl border ${result.score >= result.total/2 ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
+                        <div className={`px-4 py-2 rounded-xl font-black text-2xl border ${result.score >= result.total / 2 ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
                             {result.score} <span className="text-sm text-gray-400 font-medium">/ {result.total}</span>
                         </div>
                         <span className="text-xs text-gray-500 mt-1">الدرجة النهائية</span>
@@ -121,19 +117,19 @@ export default function ExamReviewPage() {
 
             <main className="max-w-4xl mx-auto p-4 md:p-8 space-y-8">
                 {questions.map((q, idx) => {
-                    const studentAnswerText = studentAnswers[q.id]; 
+                    const studentAnswerText = studentAnswers[q.id];
                     const correctOpt = q.options.find(opt => opt.isCorrect); // دي بتجيب الإجابة الصح من الـ Options (اللي اترتبت خلاص)
                     const correctAnswerText = correctOpt?.text;
-                    
+
                     const isCorrect = studentAnswerText === correctAnswerText;
-                    const isSkipped = !studentAnswerText; 
-                    
+                    const isSkipped = !studentAnswerText;
+
                     let borderClass = isCorrect ? 'border-green-500/30' : isSkipped ? 'border-yellow-500/30' : 'border-red-500/30';
                     let bgStatus = isCorrect ? 'bg-green-500/5' : isSkipped ? 'bg-yellow-500/5' : 'bg-red-500/5';
 
                     return (
                         <div key={q.id} className={`rounded-3xl border-2 ${borderClass} ${bgStatus} p-6 relative overflow-hidden transition-all hover:border-opacity-50`}>
-                            
+
                             {/* شريط الحالة */}
                             <div className="flex items-center gap-3 mb-6">
                                 <span className="bg-[#0B1120] border border-white/10 w-10 h-10 flex items-center justify-center rounded-full text-white font-bold text-lg shadow-inner">
@@ -150,7 +146,7 @@ export default function ExamReviewPage() {
                                     <img src={q.image} alt="" className="w-full max-h-80 object-contain" />
                                 </div>
                             )}
-                            
+
                             <div className="text-xl md:text-2xl font-bold text-gray-100 mb-8 leading-loose dir-rtl">
                                 <MathText text={q.question} />
                             </div>
@@ -162,7 +158,7 @@ export default function ExamReviewPage() {
                                     const isSelected = studentAnswerText === opt.text;
                                     const isActuallyCorrect = opt.isCorrect;
 
-                                    let optionStyle = "border-white/5 bg-[#131B2E] text-gray-400 hover:bg-[#1A253A]"; 
+                                    let optionStyle = "border-white/5 bg-[#131B2E] text-gray-400 hover:bg-[#1A253A]";
                                     let statusIcon = null;
 
                                     if (isActuallyCorrect) {

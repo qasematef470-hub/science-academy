@@ -27,15 +27,6 @@ async function assertAdmin() {
   }
 }
 
-async function assertSuperAdmin() {
-  const adminUid = await assertAdmin();
-  const currentUser = await adminAuth.getUser(adminUid);
-  if (currentUser.email !== 'qasem@science-academy.com') {
-    throw new Error("غير مصرح: هذه الصلاحية للمدير العام فقط");
-  }
-  return adminUid;
-}
-
 // ==========================================================
 // 🧠 1. الذكاء الاصطناعي: المزامنة التلقائية (Auto Sync)
 // (University -> College -> Year -> Section)

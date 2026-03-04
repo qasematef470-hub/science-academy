@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { createCourse, updateCourse, deleteCourse, getUniversityStructure, getAllInstructors, addNewInstructor, updateInstructorImage, wipeInstructorCourses, nukeInstructorAccount, forceChangeInstructorPassword, nukeEntireDatabase, getGlobalStudents, updateRegistrationVideoUrl } from '@/app/actions/admin';
+import { createCourse, updateCourse, deleteCourse, getUniversityStructure, getAllInstructors, addNewInstructor, updateInstructorImage, wipeInstructorCourses, nukeInstructorAccount, forceChangeInstructorPassword, nukeEntireDatabase, getGlobalStudents, updateRegistrationVideoUrl, deleteStudentAccount } from '@/app/actions/admin';
 
 export default function CoursesTab({ courses, onRefresh, isDarkMode, adminData, onOpenStructure }) {
 
@@ -519,8 +519,8 @@ export default function CoursesTab({ courses, onRefresh, isDarkMode, adminData, 
 
             {/* 👥 Modal: Global Platform Students */}
             {showGlobalModal && (
-                <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-[110] flex items-center justify-center p-4" dir="rtl">
-                    <div className={`w-full max-w-4xl max-h-[90vh] rounded-3xl border shadow-2xl flex flex-col ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'}`}>
+                <div className="fixed inset-0 z-[120] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4" dir="rtl">
+                    <div className="w-full max-w-5xl bg-[#0f121a] border border-white/10 rounded-[2rem] shadow-2xl flex flex-col max-h-[85vh]">
                         {/* Header */}
                         <div className="p-6 border-b border-slate-700/50 flex-shrink-0">
                             <div className="flex items-center justify-between mb-4">
@@ -543,7 +543,7 @@ export default function CoursesTab({ courses, onRefresh, isDarkMode, adminData, 
                         </div>
 
                         {/* Body — Scrollable */}
-                        <div className="flex-1 overflow-y-auto p-6 space-y-3">
+                        <div className="overflow-y-auto custom-scrollbar flex-1 p-6 space-y-3">
                             {isGlobalLoading && globalStudents.length === 0 ? (
                                 <div className="text-center py-16">
                                     <span className="text-4xl animate-spin inline-block">⏳</span>
@@ -564,10 +564,30 @@ export default function CoursesTab({ courses, onRefresh, isDarkMode, adminData, 
                                     {/* Student Cards Grid */}
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                         {globalStudents.map((s) => (
-                                            <div key={s.uid} className={`p-4 rounded-2xl border transition hover:shadow-md ${isDarkMode ? 'bg-slate-800/60 border-slate-700 hover:border-blue-500/30' : 'bg-gray-50 border-gray-200 hover:border-blue-300'}`}>
+                                            <div key={s.uid} className={`p-4 rounded-2xl border transition hover:shadow-md relative ${isDarkMode ? 'bg-slate-800/60 border-slate-700 hover:border-blue-500/30' : 'bg-gray-50 border-gray-200 hover:border-blue-300'}`}>
                                                 <div className="flex items-start justify-between gap-3">
                                                     <div className="flex-1 min-w-0">
-                                                        <h4 className={`font-black truncate text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{s.name || 'بدون اسم'}</h4>
+                                                        <div className="flex items-center gap-2">
+                                                            <h4 className={`font-black truncate text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{s.name || 'بدون اسم'}</h4>
+                                                            {isSuperAdmin && (
+                                                                <button
+                                                                    onClick={async () => {
+                                                                        if (confirm('هل أنت متأكد من حذف هذا الحساب نهائياً؟')) {
+                                                                            const res = await deleteStudentAccount(s.uid);
+                                                                            if (res.success) {
+                                                                                setGlobalStudents(prev => prev.filter(student => student.uid !== s.uid));
+                                                                            } else {
+                                                                                alert('❌ خطأ: ' + res.message);
+                                                                            }
+                                                                        }
+                                                                    }}
+                                                                    className="text-red-500 hover:text-red-700 transition px-2 py-0.5 rounded bg-red-500/10 text-xs"
+                                                                    title="حذف الطالب نهائياً"
+                                                                >
+                                                                    🗑️
+                                                                </button>
+                                                            )}
+                                                        </div>
                                                         <p className="text-xs text-gray-500 font-mono mt-0.5 dir-ltr text-right">{s.phone || '---'}</p>
                                                     </div>
                                                     <div className={`px-3 py-1.5 rounded-lg text-center flex-shrink-0 ${isDarkMode ? 'bg-blue-500/10' : 'bg-blue-50'}`}>

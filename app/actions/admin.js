@@ -27,6 +27,15 @@ async function assertAdmin() {
   }
 }
 
+async function assertSuperAdmin() {
+  const adminUid = await assertAdmin();
+  const currentUser = await adminAuth.getUser(adminUid);
+  if (currentUser.email !== 'qasem@science-academy.com') {
+    throw new Error("غير مصرح: هذه الصلاحية للمدير العام فقط");
+  }
+  return adminUid;
+}
+
 // ==========================================================
 // 🧠 1. الذكاء الاصطناعي: المزامنة التلقائية (Auto Sync)
 // (University -> College -> Year -> Section)
@@ -270,7 +279,7 @@ export async function toggleUserLock(uid, shouldLock) {
 
 export async function deleteStudentAccount(uid) {
   try {
-    await assertAdmin();
+    await assertSuperAdmin();
     await adminAuth.deleteUser(uid);
     await adminDb.collection('users').doc(uid).delete();
     revalidatePath("/", "layout");
@@ -330,13 +339,7 @@ export async function updateCourseStatus(studentUid, courseId, action) {
 }
 export async function adminResetPassword(uid, newPassword) {
   try {
-    const adminUid = await assertAdmin();
-    // Super Admin Check
-    const currentUser = await adminAuth.getUser(adminUid);
-    if (currentUser.email !== 'qasem@science-academy.com') {
-      throw new Error("غير مصرح: هذه الصلاحية للمدير العام فقط");
-    }
-
+    await assertSuperAdmin();
     await adminAuth.updateUser(uid, { password: newPassword });
     return { success: true, message: "تم تغيير الباسورد بنجاح 🔑" };
   } catch (error) { return { success: false, error: error.message }; }

@@ -64,13 +64,16 @@ export default function QuestionBankTab({ myCourses, isDark }) {
     // 4. Shuffling & Resetting Question State
     useEffect(() => {
         if (currentQ) {
-            // Shuffle options
-            const shuffled = [...currentQ.options]
-                .map((value) => ({ value, sort: Math.random() }))
-                .sort((a, b) => a.sort - b.sort)
-                .map(({ value }) => value);
-
-            setShuffledOptions(shuffled);
+            if (!currentQ.type || currentQ.type === 'mcq') {
+                // Shuffle options for MCQ only
+                const shuffled = [...currentQ.options]
+                    .map((value) => ({ value, sort: Math.random() }))
+                    .sort((a, b) => a.sort - b.sort)
+                    .map(({ value }) => value);
+                setShuffledOptions(shuffled);
+            } else {
+                setShuffledOptions([]);
+            }
             setHasAnswered(false);
             setSelectedOptionIndex(null);
             setShowHint(false);
@@ -209,68 +212,89 @@ export default function QuestionBankTab({ myCourses, isDark }) {
                         <MathText text={currentQ.question} />
                     </div>
 
-                    {/* Options Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-auto z-10">
-                        {shuffledOptions.map((opt, idx) => {
-                            // Logic for coloring options
-                            let optClasses = `relative p-6 rounded-2xl border-2 font-bold text-lg md:text-xl transition-all duration-300 min-h-[90px] flex items-center justify-center text-center cursor-pointer select-none `;
+                    {/* Options Grid — MCQ only */}
+                    {(!currentQ.type || currentQ.type === 'mcq') ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-auto z-10">
+                            {shuffledOptions.map((opt, idx) => {
+                                // Logic for coloring options
+                                let optClasses = `relative p-6 rounded-2xl border-2 font-bold text-lg md:text-xl transition-all duration-300 min-h-[90px] flex items-center justify-center text-center cursor-pointer select-none `;
 
-                            if (hasAnswered) {
-                                // Answered State
-                                if (opt.isCorrect) {
-                                    // Highlight correct always when answered
-                                    optClasses += `bg-emerald-500/10 border-emerald-500 text-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.2)] `;
-                                } else if (idx === selectedOptionIndex) {
-                                    // Highlight incorrect if it was the one selected
-                                    optClasses += `bg-rose-500/10 border-rose-500 text-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.2)] `;
+                                if (hasAnswered) {
+                                    // Answered State
+                                    if (opt.isCorrect) {
+                                        // Highlight correct always when answered
+                                        optClasses += `bg-emerald-500/10 border-emerald-500 text-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.2)] `;
+                                    } else if (idx === selectedOptionIndex) {
+                                        // Highlight incorrect if it was the one selected
+                                        optClasses += `bg-rose-500/10 border-rose-500 text-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.2)] `;
+                                    } else {
+                                        // Dim other wrong options
+                                        optClasses += `bg-transparent border-white/5 text-gray-500 opacity-50 cursor-not-allowed `;
+                                    }
                                 } else {
-                                    // Dim other wrong options
-                                    optClasses += `bg-transparent border-white/5 text-gray-500 opacity-50 cursor-not-allowed `;
+                                    // Default State
+                                    optClasses += isDark
+                                        ? `bg-[#151820] border-white/10 hover:border-blue-500 hover:bg-blue-500/5 text-gray-300 hover:text-white shadow-lg`
+                                        : `bg-white border-gray-200 hover:border-blue-500 hover:bg-blue-50 text-gray-700 shadow-sm`;
                                 }
-                            } else {
-                                // Default State
-                                optClasses += isDark
-                                    ? `bg-[#151820] border-white/10 hover:border-blue-500 hover:bg-blue-500/5 text-gray-300 hover:text-white shadow-lg`
-                                    : `bg-white border-gray-200 hover:border-blue-500 hover:bg-blue-50 text-gray-700 shadow-sm`;
-                            }
 
-                            return (
-                                <button
-                                    key={idx}
-                                    onClick={() => handleOptionClick(idx, opt.isCorrect)}
-                                    disabled={hasAnswered}
-                                    className={optClasses}
-                                >
-                                    <div className="pointer-events-none p-1">
-                                        <MathText text={opt.text} />
-                                    </div>
+                                return (
+                                    <button
+                                        key={idx}
+                                        onClick={() => handleOptionClick(idx, opt.isCorrect)}
+                                        disabled={hasAnswered}
+                                        className={optClasses}
+                                    >
+                                        <div className="pointer-events-none p-1">
+                                            <MathText text={opt.text} />
+                                        </div>
 
-                                    {/* Feedback Icons */}
-                                    {hasAnswered && opt.isCorrect && (
-                                        <span className="absolute top-3 right-4 text-2xl animate-bounce">✅</span>
-                                    )}
-                                    {hasAnswered && !opt.isCorrect && idx === selectedOptionIndex && (
-                                        <span className="absolute top-3 right-4 text-2xl animate-shake">❌</span>
-                                    )}
-                                </button>
-                            );
-                        })}
-                    </div>
-
-                    {/* Hint Section (Expandable) */}
-                    {hasAnswered && (
-                        <div className="mt-8 animate-slide-up">
+                                        {/* Feedback Icons */}
+                                        {hasAnswered && opt.isCorrect && (
+                                            <span className="absolute top-3 right-4 text-2xl animate-bounce">✅</span>
+                                        )}
+                                        {hasAnswered && !opt.isCorrect && idx === selectedOptionIndex && (
+                                            <span className="absolute top-3 right-4 text-2xl animate-shake">❌</span>
+                                        )}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        /* Essay Question — Show Model Answer Button */
+                        <div className="mt-auto z-10 space-y-6">
+                            <div className={`p-6 rounded-2xl border-2 border-dashed text-center ${isDark ? 'border-amber-500/30 bg-amber-900/10' : 'border-amber-400 bg-amber-50'}`}>
+                                <p className={`text-lg font-black mb-2 ${isDark ? 'text-amber-400' : 'text-amber-700'}`}>✍️ سؤال مقالي</p>
+                                <p className={`text-sm font-bold ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>هذا السؤال يتطلب إجابة كتابية أو بالصورة. اطلع على الحل النموذجي للتعلم.</p>
+                            </div>
                             <button
                                 onClick={() => setShowHint(!showHint)}
-                                className={`flex items-center gap-2 mx-auto font-bold text-sm transition-colors py-2 px-6 rounded-full border ${showHint ? 'bg-amber-500/20 text-amber-500 border-amber-500/30' : 'bg-white/5 text-gray-400 hover:text-white border-white/10'}`}
+                                className={`w-full py-5 rounded-2xl font-black text-lg transition-all flex items-center justify-center gap-3 ${showHint
+                                    ? (isDark ? 'bg-amber-500/20 text-amber-400 border-2 border-amber-500/30' : 'bg-amber-100 text-amber-700 border-2 border-amber-300')
+                                    : (isDark ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-[0_10px_40px_rgba(37,99,235,0.3)]' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg')}`}
                             >
                                 <span className="text-xl">💡</span>
-                                {showHint ? 'إخفاء التفسير' : 'هل تحتاج لـ تفسير الحل؟'}
+                                {showHint ? 'إخفاء الحل النموذجي' : 'إظهار الحل النموذجي 💡'}
                             </button>
+                        </div>
+                    )}
+
+                    {/* Hint Section (Expandable) — used for both MCQ explanation and Essay model answer */}
+                    {(hasAnswered || (currentQ.type === 'essay' && showHint)) && (
+                        <div className="mt-8 animate-slide-up">
+                            {(!currentQ.type || currentQ.type === 'mcq') && (
+                                <button
+                                    onClick={() => setShowHint(!showHint)}
+                                    className={`flex items-center gap-2 mx-auto font-bold text-sm transition-colors py-2 px-6 rounded-full border ${showHint ? 'bg-amber-500/20 text-amber-500 border-amber-500/30' : 'bg-white/5 text-gray-400 hover:text-white border-white/10'}`}
+                                >
+                                    <span className="text-xl">💡</span>
+                                    {showHint ? 'إخفاء التفسير' : 'هل تحتاج لـ تفسير الحل؟'}
+                                </button>
+                            )}
 
                             {showHint && (
                                 <div className="mt-6 p-6 rounded-2xl bg-amber-500/10 border border-amber-500/20 shadow-inner">
-                                    <h4 className="font-black text-amber-600 dark:text-amber-500 mb-3 text-lg">تفسير الحل:</h4>
+                                    <h4 className="font-black text-amber-600 dark:text-amber-500 mb-3 text-lg">{currentQ.type === 'essay' ? 'الحل النموذجي:' : 'تفسير الحل:'}</h4>
                                     <div className="font-bold text-gray-800 dark:text-gray-300 leading-relaxed text-sm md:text-base">
                                         {currentQ.explanation ? (
                                             <MathText text={currentQ.explanation} />

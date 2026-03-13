@@ -60,6 +60,7 @@ export default function ExamPage() {
     // --- UI States ---
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [uploadingAnswer, setUploadingAnswer] = useState({});
 
     // Refs
     const isSubmittingRef = useRef(false);
@@ -451,9 +452,14 @@ export default function ExamPage() {
 
         questions.forEach(q => {
             if (currentAnswers[q.id] !== undefined) {
-                const idx = currentAnswers[q.id];
-                if (q.options[idx]) {
-                    answersAsText[q.id] = q.options[idx].text;
+                if (q.type === 'essay') {
+                    // Essay answers are stored as image URLs directly
+                    answersAsText[q.id] = currentAnswers[q.id];
+                } else {
+                    const idx = currentAnswers[q.id];
+                    if (q.options[idx]) {
+                        answersAsText[q.id] = q.options[idx].text;
+                    }
                 }
             }
             if (q.options) {
@@ -640,25 +646,93 @@ export default function ExamPage() {
                                 </div>
 
                                 <div className="grid gap-4">
-                                    {question?.options.map((opt, idx) => {
-                                        const isSelected = answersIndices[question.id] === idx;
-                                        return (
-                                            <button
-                                                key={idx}
-                                                onClick={() => handleAnswerSelect(question.id, idx)}
-                                                className={`flex items-center p-5 rounded-2xl border-2 text-right transition-all group relative overflow-hidden
+                                    {(!question?.type || question?.type === 'mcq') ? (
+                                        <>
+                                            {question?.options.map((opt, idx) => {
+                                                const isSelected = answersIndices[question.id] === idx;
+                                                return (
+                                                    <button
+                                                        key={idx}
+                                                        onClick={() => handleAnswerSelect(question.id, idx)}
+                                                        className={`flex items-center p-5 rounded-2xl border-2 text-right transition-all group relative overflow-hidden
                                             ${isSelected
-                                                        ? 'border-blue-500 bg-blue-500/10 shadow-[0_0_20px_rgba(59,130,246,0.3)]'
-                                                        : 'border-white/5 bg-[#0B1120] hover:bg-white/5 hover:border-white/20'
-                                                    }`}
-                                            >
-                                                <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center mr-4 ml-4 transition-colors ${isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-600 group-hover:border-gray-400'}`}>
-                                                    {isSelected && <div className="w-3 h-3 bg-white rounded-full"></div>}
+                                                                ? 'border-blue-500 bg-blue-500/10 shadow-[0_0_20px_rgba(59,130,246,0.3)]'
+                                                                : 'border-white/5 bg-[#0B1120] hover:bg-white/5 hover:border-white/20'
+                                                            }`}
+                                                    >
+                                                        <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center mr-4 ml-4 transition-colors ${isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-600 group-hover:border-gray-400'}`}>
+                                                            {isSelected && <div className="w-3 h-3 bg-white rounded-full"></div>}
+                                                        </div>
+                                                        <span className="text-lg font-medium text-gray-200 dir-rtl"> <MathText text={opt.text} /></span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </>
+                                    ) : (
+                                        /* Essay Question Upload UI */
+                                        <div className="space-y-4">
+                                            {answersIndices[question.id] ? (
+                                                <div className="space-y-4">
+                                                    <div className="p-4 rounded-2xl border-2 border-green-500/30 bg-green-500/5">
+                                                        <p className="text-sm font-bold text-green-400 mb-3 text-center">✅ تم رفع إجابتك</p>
+                                                        <img src={answersIndices[question.id]} alt="إجابة الطالب" className="max-h-60 mx-auto rounded-xl object-contain border border-white/10 bg-white/5" />
+                                                    </div>
+                                                    <label className="block cursor-pointer">
+                                                        <input type="file" className="hidden" accept="image/*" onChange={async (e) => {
+                                                            const file = e.target.files[0];
+                                                            if (!file) return;
+                                                            setUploadingAnswer(prev => ({ ...prev, [question.id]: true }));
+                                                            try {
+                                                                const formData = new FormData();
+                                                                formData.append('image', file);
+                                                                const res = await fetch('https://api.imgbb.com/1/upload?key=704bf9cb613e81494745109ea367cf1e', { method: 'POST', body: formData });
+                                                                const data = await res.json();
+                                                                if (data.success) {
+                                                                    setAnswersIndices(prev => ({ ...prev, [question.id]: data.data.url }));
+                                                                    updateLocalStorage({ answersIndices: { ...answersIndices, [question.id]: data.data.url } });
+                                                                } else { alert('فشل رفع الصورة، حاول مرة أخرى.'); }
+                                                            } catch (err) { console.error(err); alert('خطأ في رفع الصورة.'); }
+                                                            finally { setUploadingAnswer(prev => ({ ...prev, [question.id]: false })); }
+                                                        }} />
+                                                        <div className="w-full py-3 text-center bg-amber-500/20 text-amber-400 rounded-xl font-bold text-sm border border-amber-500/30 hover:bg-amber-500/30 transition cursor-pointer">
+                                                            🔄 تغيير الصورة
+                                                        </div>
+                                                    </label>
                                                 </div>
-                                                <span className="text-lg font-medium text-gray-200 dir-rtl"> <MathText text={opt.text} /></span>
-                                            </button>
-                                        );
-                                    })}
+                                            ) : (
+                                                <label className="block cursor-pointer">
+                                                    <input type="file" className="hidden" accept="image/*" onChange={async (e) => {
+                                                        const file = e.target.files[0];
+                                                        if (!file) return;
+                                                        setUploadingAnswer(prev => ({ ...prev, [question.id]: true }));
+                                                        try {
+                                                            const formData = new FormData();
+                                                            formData.append('image', file);
+                                                            const res = await fetch('https://api.imgbb.com/1/upload?key=704bf9cb613e81494745109ea367cf1e', { method: 'POST', body: formData });
+                                                            const data = await res.json();
+                                                            if (data.success) {
+                                                                setAnswersIndices(prev => ({ ...prev, [question.id]: data.data.url }));
+                                                                updateLocalStorage({ answersIndices: { ...answersIndices, [question.id]: data.data.url } });
+                                                            } else { alert('فشل رفع الصورة، حاول مرة أخرى.'); }
+                                                        } catch (err) { console.error(err); alert('خطأ في رفع الصورة.'); }
+                                                        finally { setUploadingAnswer(prev => ({ ...prev, [question.id]: false })); }
+                                                    }} />
+                                                    {uploadingAnswer[question?.id] ? (
+                                                        <div className="flex flex-col items-center justify-center p-10 border-2 border-dashed border-blue-500/30 rounded-2xl bg-blue-500/5">
+                                                            <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-3"></div>
+                                                            <p className="text-sm font-bold text-blue-400 animate-pulse">جاري رفع الصورة...</p>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex flex-col items-center justify-center p-10 border-2 border-dashed border-white/10 rounded-2xl bg-white/5 hover:border-blue-500/30 hover:bg-blue-500/5 transition-all">
+                                                            <span className="text-4xl mb-3">📸</span>
+                                                            <p className="text-lg font-bold text-white mb-1">ارفع صورة إجابتك</p>
+                                                            <p className="text-xs text-gray-500">اضغط هنا لاختيار صورة من جهازك</p>
+                                                        </div>
+                                                    )}
+                                                </label>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>

@@ -240,13 +240,20 @@ export default function ResultsTab({ myCourses, isDarkMode }) {
                                             <div>End: {formatFullTime(res.endTime || res.submittedAt)}</div>
                                         </td>
                                         <td className="p-4">
-                                            <span className="font-black text-indigo-500 text-lg">{res.score}</span> <span className="text-gray-400 text-xs">/ {res.total}</span>
-                                            <div className="text-[10px] text-gray-400">⏱ {res.timeTaken}</div>
+                                            {res.needsManualGrading ? (
+                                                <span className="bg-amber-500/20 text-amber-500 px-2 py-1 rounded-lg text-xs font-bold border border-amber-500/20">يحتاج تقييم ⏳</span>
+                                            ) : (
+                                                <>
+                                                    <span className="font-black text-indigo-500 text-lg">{res.score}</span> <span className="text-gray-400 text-xs">/ {res.total}</span>
+                                                    <div className="text-[10px] text-gray-400">⏱ {res.timeTaken}</div>
+                                                </>
+                                            )}
                                         </td>
                                         <td className="p-4">
                                             <span className={`text-[10px] px-2 py-1 rounded-lg font-bold border ${res.status?.includes('غش') ? 'bg-red-50 text-red-600 border-red-200' :
                                                 res.status?.includes('Running') ? 'bg-yellow-50 text-yellow-600 border-yellow-200 animate-pulse' :
-                                                    'bg-green-50 text-green-600 border-green-200'
+                                                    res.status?.includes('بانتظار') ? 'bg-amber-50 text-amber-600 border-amber-200' :
+                                                        'bg-green-50 text-green-600 border-green-200'
                                                 }`}>
                                                 {res.status}
                                             </span>

@@ -1233,3 +1233,82 @@ export async function getRegistrationVideoUrl() {
     return { success: true, videoId: "YsmGiwCnHhE" }; // Fallback on error too
   }
 }
+
+// ==========================================================
+// ✍️ 13. تقييم الأسئلة المقالية (Essay Grading — Admin Only)
+// ==========================================================
+export async function saveEssayEvaluation(resultId, questionId, score, feedback) {
+  try {
+    await assertAdmin();
+    if (!resultId || !questionId) throw new Error("بيانات ناقصة");
+
+    await adminDb.collection("results").doc(resultId).update({
+      [`manualEvaluations.${questionId}`]: {
+        score: Number(score),
+        feedback: feedback || ""
+      }
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error("Essay Evaluation Error:", error);
+    return { success: false, message: error.message };
+  }
+}
+
+// ✅ اعتماد النتيجة النهائية (Finalize Manual Grading)
+export async function submitManualGrading(resultId, essayGrades, feedbackNotes) {
+  try {
+    await assertAdmin();
+    if (!resultId) throw new Error("معرف النتيجة مطلوب");
+
+    // 1. جلب وثيقة النتيجة
+    const resultRef = adminDb.collection("results").doc(resultId);
+    const resultSnap = await resultRef.get();
+    if (!resultSnap.exists) throw new Error("النتيجة غير موجودة");
+
+    const resultData = resultSnap.data();
+
+    // 2. حساب مجموع درجات الأسئلة المقالية (مع حماية من NaN)
+    const essayScoreSum = Object.values(essayGrades || {}).reduce(
+      (sum, val) => sum + (Number(val) || 0), 0
+    );
+
+    // 3. الدرجة النهائية = درجة MCQ المحفوظة مسبقاً + مجموع درجات المقالي
+    const mcqScore = Number(resultData.mcqScore) || 0;
+    const newTotalScore = mcqScore + essayScoreSum;
+
+    // 4. بناء الـ manualEvaluations object
+    const manualEvaluations = {};
+    for (const qId of Object.keys(essayGrades || {})) {
+      manualEvaluations[qId] = {
+        score: Number(essayGrades[qId]) || 0,
+        feedback: (feedbackNotes && feedbackNotes[qId]) ? String(feedbackNotes[qId]) : ""
+      };
+    }
+
+    // 5. تحديث الوثيقة
+    await resultRef.update({
+      score: newTotalScore,
+      manualEvaluations: manualEvaluations,
+      needsManualGrading: false,
+      status: "تم التصحيح ✅"
+    });
+
+    // 6. إرسال إشعار للطالب
+    if (resultData.studentId) {
+      await sendNotification({
+        recipientId: resultData.studentId,
+        title: "تم تصحيح امتحانك ✅",
+        body: "تم تصحيح امتحانك، يمكنك الآن مراجعة النتيجة وملاحظات المحاضر",
+        type: "success",
+        link: `/exam/${resultData.courseId}/review/${resultId}`
+      });
+    }
+
+    return { success: true, newScore: newTotalScore };
+  } catch (error) {
+    console.error("Submit Manual Grading Error:", error);
+    return { success: false, message: error.message };
+  }
+}

@@ -602,15 +602,21 @@ export async function submitExamResult(payload) {
         const snapshot = await questionsRef.where('courseId', '==', courseId).get();
         const allQuestions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-        let score = 0;
         const targetIds = (questionIds && Array.isArray(questionIds)) ? questionIds : allQuestions.map(q => q.id);
         const questionsToGrade = allQuestions.filter(q => targetIds.includes(q.id));
 
-        questionsToGrade.forEach(q => {
+        // 🔥 Smart Grading: Detect essay questions
+        const hasEssay = questionsToGrade.some(q => q.type === 'essay');
+        const mcqQuestions = questionsToGrade.filter(q => q.type !== 'essay');
+        const essayQuestions = questionsToGrade.filter(q => q.type === 'essay');
+
+        // Auto-grade only MCQ questions
+        let mcqScore = 0;
+        mcqQuestions.forEach(q => {
             const studentAns = answers[q.id];
             const correctOpt = q.options.find(o => o.isCorrect);
             if (studentAns && correctOpt && studentAns === correctOpt.text) {
-                score += 1;
+                mcqScore += 1;
             }
         });
 
@@ -620,11 +626,22 @@ export async function submitExamResult(payload) {
         let finalStatus = "تم التسليم ✅";
         if (submissionType === 'cheating') {
             finalStatus = "تم الإلغاء (غش) 🚫";
+        } else if (hasEssay) {
+            finalStatus = "بانتظار التقييم ⏳";
         }
 
+        // For hybrid exams: score = mcqScore only, total = all questions
+        // The admin will add essay scores manually later
+        const savedScore = hasEssay ? mcqScore : mcqScore;
+        const savedTotal = questionsToGrade.length;
+
         await adminDb.collection("results").doc(resultId).set({
-            score,
-            total: questionsToGrade.length,
+            score: savedScore,
+            total: savedTotal,
+            mcqScore: mcqScore,
+            mcqTotal: mcqQuestions.length,
+            essayTotal: essayQuestions.length,
+            needsManualGrading: hasEssay,
             timeTaken,
             cheatingLog: cheatingLog || [],
             status: finalStatus,
@@ -636,13 +653,23 @@ export async function submitExamResult(payload) {
         }, { merge: true });
 
         // إشعار للطالب
-        await sendNotification({
-            recipientId: studentId,
-            title: "تم تصحيح الامتحان 📝",
-            body: `أنهيت امتحان ${examCode || 'العام'}. درجتك: ${score}/${questionsToGrade.length}`,
-            type: score >= (questionsToGrade.length / 2) ? "success" : "warning",
-            link: `/dashboard`
-        });
+        if (hasEssay) {
+            await sendNotification({
+                recipientId: studentId,
+                title: "تم استلام إجاباتك 📝",
+                body: `تم استلام إجاباتك في امتحان ${examCode || 'العام'}. بانتظار تقييم المحاضر للأسئلة المقالية.`,
+                type: "info",
+                link: `/dashboard`
+            });
+        } else {
+            await sendNotification({
+                recipientId: studentId,
+                title: "تم تصحيح الامتحان 📝",
+                body: `أنهيت امتحان ${examCode || 'العام'}. درجتك: ${mcqScore}/${savedTotal}`,
+                type: mcqScore >= (savedTotal / 2) ? "success" : "warning",
+                link: `/dashboard`
+            });
+        }
 
         // 🔥🔥 الجزء الجديد: إشعار للأدمن 🔥🔥
         const courseDoc = await adminDb.collection('courses').doc(courseId).get();
@@ -658,18 +685,28 @@ export async function submitExamResult(payload) {
             if (instructorId) {
                 const isCheating = submissionType === 'cheating';
 
-                await sendNotification({
-                    recipientId: instructorId,
-                    title: isCheating ? "حالة غش 🚨" : "تسليم امتحان 🏁",
-                    body: `الطالب (${studentName}) ${isCheating ? 'تم إغلاق امتحانه بسبب الغش' : 'سلم الامتحان'}. الدرجة: ${score}/${questionsToGrade.length} في مادة: ${courseName}`,
-                    type: isCheating ? "error" : "success", // أحمر لو غش، أخضر لو تسليم عادي
-                    link: "/admin"
-                });
+                if (hasEssay && !isCheating) {
+                    await sendNotification({
+                        recipientId: instructorId,
+                        title: "تسليم امتحان يحتاج تقييم ✍️",
+                        body: `الطالب (${studentName}) سلم امتحاناً يحتوي أسئلة مقالية في مادة: ${courseName}. يرجى مراجعة الورقة.`,
+                        type: "warning",
+                        link: "/admin"
+                    });
+                } else {
+                    await sendNotification({
+                        recipientId: instructorId,
+                        title: isCheating ? "حالة غش 🚨" : "تسليم امتحان 🏁",
+                        body: `الطالب (${studentName}) ${isCheating ? 'تم إغلاق امتحانه بسبب الغش' : 'سلم الامتحان'}. الدرجة: ${mcqScore}/${savedTotal} في مادة: ${courseName}`,
+                        type: isCheating ? "error" : "success",
+                        link: "/admin"
+                    });
+                }
             }
         }
         // 🔥🔥 نهاية التعديل 🔥🔥
 
-        return { success: true, score, total: questionsToGrade.length };
+        return { success: true, score: savedScore, total: savedTotal, needsManualGrading: hasEssay };
 
     } catch (error) {
         console.error("Submit Error:", error);

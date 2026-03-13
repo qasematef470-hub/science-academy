@@ -30,6 +30,7 @@ export default function QuestionsTab({
     const [previewIndex, setPreviewIndex] = useState(0);
     const [folderQuestions, setFolderQuestions] = useState([]);
     const [loadingFolder, setLoadingFolder] = useState(false);
+    const [questionType, setQuestionType] = useState('mcq');
 
     const [options, setOptions] = useState([
         { text: "", isCorrect: true }, { text: "", isCorrect: false },
@@ -156,7 +157,8 @@ export default function QuestionsTab({
                 question: questionText,
                 image: qImage,
                 difficulty: qDifficulty,
-                options: options,
+                options: questionType === 'essay' ? [] : options,
+                type: questionType,
                 lecture: qLecture,
                 explanation: qExplanation,
                 createdAt: serverTimestamp()
@@ -173,6 +175,7 @@ export default function QuestionsTab({
             setQuestionText("");
             setQImage("");
             setQExplanation("");
+            setQuestionType('mcq');
             setOptions([{ text: "", isCorrect: true }, { text: "", isCorrect: false }, { text: "", isCorrect: false }, { text: "", isCorrect: false }]);
             fetchQuestions(selectedCourseForQ);
             if (selectedLectureView) handleFolderSelect(selectedLectureView);
@@ -197,7 +200,8 @@ export default function QuestionsTab({
         setQDifficulty(q.difficulty || 'medium');
         setQLecture(q.lecture || "");
         setQExplanation(q.explanation || "");
-        setOptions(q.options);
+        setQuestionType(q.type || 'mcq');
+        setOptions(q.options?.length ? q.options : [{ text: "", isCorrect: true }, { text: "", isCorrect: false }, { text: "", isCorrect: false }, { text: "", isCorrect: false }]);
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
@@ -324,16 +328,33 @@ export default function QuestionsTab({
                         />
                     </div>
 
-                    {/* 3. Options (Using MathText for inputs placeholders is tricky, better use normal inputs) */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="relative">
-                            <span className="absolute -top-2.5 right-3 px-2 bg-green-100 text-green-700 text-[10px] font-bold rounded-full border border-green-200 z-10">الإجابة الصحيحة</span>
-                            <input className={`w-full p-4 rounded-xl border-2 border-green-500/50 focus:border-green-500 outline-none transition font-bold ${isDarkMode ? 'bg-green-900/10 text-white' : 'bg-green-50 text-gray-900'}`} placeholder="الإجابة الصحيحة" value={options[0].text} onChange={(e) => { const ops = [...options]; ops[0].text = e.target.value; setOptions(ops); }} required />
+                    {/* 2.5 Question Type Toggle */}
+                    <div className="w-full">
+                        <label className={`block text-xs font-bold mb-2 ${theme.textSec}`}>نوع السؤال</label>
+                        <div className={`flex p-1 rounded-xl border ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-gray-100 border-gray-200'}`}>
+                            <button type="button" onClick={() => setQuestionType('mcq')} className={`flex-1 py-3 px-4 rounded-lg text-sm font-bold transition-all ${questionType === 'mcq' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-200 dark:hover:bg-slate-700'}`}>اختياري (MCQ)</button>
+                            <button type="button" onClick={() => setQuestionType('essay')} className={`flex-1 py-3 px-4 rounded-lg text-sm font-bold transition-all ${questionType === 'essay' ? 'bg-amber-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-200 dark:hover:bg-slate-700'}`}>مقالي (صورة) ✍️</button>
                         </div>
-                        {[1, 2, 3].map(i => (
-                            <input key={i} className={`w-full p-4 rounded-xl outline-none focus:ring-2 focus:ring-red-400 transition ${theme.input}`} placeholder={`اختيار خاطئ ${i}`} value={options[i].text} onChange={(e) => { const ops = [...options]; ops[i].text = e.target.value; setOptions(ops); }} required />
-                        ))}
                     </div>
+
+                    {/* 3. Options — hidden for essay */}
+                    {questionType === 'mcq' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="relative">
+                                <span className="absolute -top-2.5 right-3 px-2 bg-green-100 text-green-700 text-[10px] font-bold rounded-full border border-green-200 z-10">الإجابة الصحيحة</span>
+                                <input className={`w-full p-4 rounded-xl border-2 border-green-500/50 focus:border-green-500 outline-none transition font-bold ${isDarkMode ? 'bg-green-900/10 text-white' : 'bg-green-50 text-gray-900'}`} placeholder="الإجابة الصحيحة" value={options[0].text} onChange={(e) => { const ops = [...options]; ops[0].text = e.target.value; setOptions(ops); }} required />
+                            </div>
+                            {[1, 2, 3].map(i => (
+                                <input key={i} className={`w-full p-4 rounded-xl outline-none focus:ring-2 focus:ring-red-400 transition ${theme.input}`} placeholder={`اختيار خاطئ ${i}`} value={options[i].text} onChange={(e) => { const ops = [...options]; ops[i].text = e.target.value; setOptions(ops); }} required />
+                            ))}
+                        </div>
+                    )}
+
+                    {questionType === 'essay' && (
+                        <div className={`p-4 rounded-xl border-2 border-dashed text-center text-sm font-bold ${isDarkMode ? 'border-amber-500/30 bg-amber-900/10 text-amber-400' : 'border-amber-400 bg-amber-50 text-amber-700'}`}>
+                            ✍️ سؤال مقالي — الطالب سيرفع صورة إجابته. اكتب الحل النموذجي في خانة "تفسير الحل" أدناه.
+                        </div>
+                    )}
 
                     {/* 3.5 Explanation (تفسير الحل) */}
                     <div className="w-full">
@@ -381,6 +402,7 @@ export default function QuestionsTab({
                             setQuestionText("");
                             setQImage("");
                             setQExplanation("");
+                            setQuestionType('mcq');
                             setOptions([{ text: "", isCorrect: true }, { text: "", isCorrect: false }, { text: "", isCorrect: false }, { text: "", isCorrect: false }]);
 
                             if (direction === 'prev') setPreviewIndex(i => Math.max(0, i - 1));

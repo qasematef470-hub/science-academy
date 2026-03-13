@@ -243,9 +243,10 @@ function DashboardContent() {
     // 🔄 مزامنة التاب مع السايدبار
     useEffect(() => { setActiveTab(view); }, [view]);
 
-    // 📊 حساب الإحصائيات الحقيقية من النتائج
-    const totalScore = data?.results?.reduce((acc, res) => acc + (Number(res.score) || 0), 0) || 0;
-    const totalPossible = data?.results?.reduce((acc, res) => acc + (Number(res.total) || 0), 0) || 0;
+    // 📊 حساب الإحصائيات الحقيقية من النتائج (exclude pending manual grading)
+    const gradedResults = data?.results?.filter(res => !res.needsManualGrading) || [];
+    const totalScore = gradedResults.reduce((acc, res) => acc + (Number(res.score) || 0), 0);
+    const totalPossible = gradedResults.reduce((acc, res) => acc + (Number(res.total) || 0), 0);
     const avgPercent = totalPossible > 0 ? Math.round((totalScore / totalPossible) * 100) : 0;
 
     const getLevelInfo = (pct) => {
@@ -408,8 +409,14 @@ function DashboardContent() {
                                                     </div>
                                                 </td>
                                                 <td className="p-6">
-                                                    <span className={`text-lg font-black ${isPassed ? 'text-emerald-500' : 'text-red-500'}`}>{res.score}</span>
-                                                    <span className="text-gray-500 text-xs font-bold"> / {res.total}</span>
+                                                    {res.needsManualGrading ? (
+                                                        <span className="bg-amber-500/20 text-amber-400 px-3 py-1.5 rounded-lg text-sm font-black border border-amber-500/20">جاري التقييم ⏳</span>
+                                                    ) : (
+                                                        <>
+                                                            <span className={`text-lg font-black ${isPassed ? 'text-emerald-500' : 'text-red-500'}`}>{res.score}</span>
+                                                            <span className="text-gray-500 text-xs font-bold"> / {res.total}</span>
+                                                        </>
+                                                    )}
                                                 </td>
                                                 <td className="p-6 text-xs text-gray-500 font-bold hidden md:table-cell">{new Date(res.submittedAt).toLocaleDateString('ar-EG')}</td>
                                                 <td className="p-6 flex gap-2">

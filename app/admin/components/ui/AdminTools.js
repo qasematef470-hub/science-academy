@@ -69,7 +69,7 @@ export default function AdminTools({ myCourses, onRefresh, isDarkMode }) {
     const generatePrompt = () => {
         const courseName = myCourses.find(c => c.id === selectedCourseId)?.name || "المادة";
         const promptText = `
-    تصرف كأستاذ جامعي خبير. قم بإنشاء 5 أسئلة اختيار من متعدد لمادة [${courseName}].
+    تصرف كأستاذ جامعي خبير. قم بإنشاء 5 أسئلة لمادة [${courseName}].
     
     ⚠️ تعليمات التنسيق (Format Rules):
     1. المخرج يجب أن يكون JSON Array حصراً.
@@ -77,6 +77,8 @@ export default function AdminTools({ myCourses, onRefresh, isDarkMode }) {
     3. هام جداً للرياضيات والرموز: أي معادلة أو رمز انجليزي (مثل x, y, numbers) ضعه بين علامتي $$ 
        مثال: "أوجد قيمة $$x$$ في المعادلة $$x^2+5=0$$"
     4. للمواد النظرية (أحياء/نظري): اكتب السؤال نصاً عادياً بدون $$.
+    5. يمكنك إضافة أسئلة مقالية بإضافة "type": "essay" (إذا لم يُذكر، الافتراضي "mcq").
+       للأسئلة المقالية: "options" يكون [] و"explanation" يحتوي الحل النموذجي.
 
     الشكل المطلوب (JSON):
     [
@@ -89,11 +91,19 @@ export default function AdminTools({ myCourses, onRefresh, isDarkMode }) {
         "difficulty": "medium",
         "lecture": "اسم المحاضرة",
         "explanation": "القانون المستخدم هو $$F = ma$$"
+      },
+      {
+        "question": "سؤال مقالي: أثبت أن ...",
+        "type": "essay",
+        "options": [],
+        "difficulty": "hard",
+        "lecture": "اسم المحاضرة",
+        "explanation": "الحل النموذجي: ..."
       }
     ]
     `;
         navigator.clipboard.writeText(promptText);
-        alert("✅ تم نسخ الأمر المطور! (يدعم الرياضيات والعربي)");
+        alert("✅ تم نسخ الأمر المطور! (يدعم MCQ + مقالي)");
     };
 
     // 2. JSON Upload (To Current Course)

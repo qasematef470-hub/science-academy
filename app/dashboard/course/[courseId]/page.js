@@ -5,6 +5,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { useRouter, useParams } from 'next/navigation';
 import { getCourseDetails, getStudentCourseProgress, getStudentDashboardData, startVideoSession, enrollStudent } from '@/app/actions/student';
 import Link from 'next/link';
+import PdfScratchpad from '@/app/components/ui/PdfScratchpad';
 
 export default function CoursePlayerPage() {
     const { courseId } = useParams();
@@ -652,37 +653,41 @@ export default function CoursePlayerPage() {
                                             <h2 className="text-2xl font-black">{activeLesson.title}</h2>
                                             {activeLesson.link ? (
                                                 <div className="w-full h-[600px] relative bg-[#1a1d26] rounded-2xl overflow-hidden mt-4">
-                                                    <div className="absolute top-0 left-0 w-full h-[60px] z-[9999] bg-transparent"></div>
-                                                    <iframe
-                                                        src={`${getProtectedUrl(activeLesson.link)}#toolbar=0&navpanes=0`}
-                                                        className="w-full h-full border-none absolute inset-0"
-                                                    />
-                                                    {/* 🔒 PDF Watermark */}
-                                                    <div
-                                                        ref={watermarkRef}
-                                                        className="absolute inset-0 pointer-events-none select-none"
-                                                        style={{ zIndex: 2147483647, transform: 'translateZ(0)', willChange: 'transform', position: 'absolute' }}
-                                                    >
-                                                        <div className="absolute inset-0 opacity-[0.25] overflow-hidden flex items-center justify-center">
-                                                            <div className="w-full h-full flex flex-wrap content-center justify-center gap-16 p-8 rotate-[-25deg] scale-150">
-                                                                {Array(20).fill(0).map((_, i) => (
-                                                                    <div key={i} className="font-black text-base md:text-xl whitespace-nowrap" style={{ color: '#000', textShadow: '0 0 3px #fff, 0 0 6px #fff, 1px 1px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff', WebkitTextStroke: '1px rgba(255,255,255,0.8)', mixBlendMode: 'darken' }}>
-                                                                        {studentData?.name} • {studentData?.phone}
+                                                    <PdfScratchpad
+                                                        watermark={
+                                                            <div
+                                                                ref={watermarkRef}
+                                                                className="absolute inset-0 pointer-events-none select-none"
+                                                                style={{ zIndex: 2147483647, transform: 'translateZ(0)', willChange: 'transform', position: 'absolute' }}
+                                                            >
+                                                                <div className="absolute inset-0 opacity-[0.25] overflow-hidden flex items-center justify-center">
+                                                                    <div className="w-full h-full flex flex-wrap content-center justify-center gap-16 p-8 rotate-[-25deg] scale-150">
+                                                                        {Array(20).fill(0).map((_, i) => (
+                                                                            <div key={i} className="font-black text-base md:text-xl whitespace-nowrap" style={{ color: '#000', textShadow: '0 0 3px #fff, 0 0 6px #fff, 1px 1px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff', WebkitTextStroke: '1px rgba(255,255,255,0.8)', mixBlendMode: 'darken' }}>
+                                                                                {studentData?.name} • {studentData?.phone}
+                                                                            </div>
+                                                                        ))}
                                                                     </div>
-                                                                ))}
+                                                                </div>
+                                                                <div className="absolute top-4 left-4 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-xl border-2 border-white/30 shadow-2xl">
+                                                                    <p className="text-white font-bold text-xs md:text-sm" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.8)' }}>
+                                                                        {studentData?.name} | {studentData?.phone}
+                                                                    </p>
+                                                                </div>
+                                                                <div className="absolute bottom-4 left-4 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-xl border-2 border-white/30 shadow-2xl">
+                                                                    <p className="text-white font-bold text-xs md:text-sm" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.8)' }}>
+                                                                        Science Academy ⚡
+                                                                    </p>
+                                                                </div>
                                                             </div>
-                                                        </div>
-                                                        <div className="absolute top-4 right-4 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-xl border-2 border-white/30 shadow-2xl">
-                                                            <p className="text-white font-bold text-xs md:text-sm" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.8)' }}>
-                                                                {studentData?.name} | {studentData?.phone}
-                                                            </p>
-                                                        </div>
-                                                        <div className="absolute bottom-4 left-4 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-xl border-2 border-white/30 shadow-2xl">
-                                                            <p className="text-white font-bold text-xs md:text-sm" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.8)' }}>
-                                                                Science Academy ⚡
-                                                            </p>
-                                                        </div>
-                                                    </div>
+                                                        }
+                                                    >
+                                                        <div className="absolute top-0 left-0 w-full h-[60px] z-[9999] bg-transparent"></div>
+                                                        <iframe
+                                                            src={`${getProtectedUrl(activeLesson.link)}#toolbar=0&navpanes=0`}
+                                                            className="w-full h-full border-none absolute inset-0"
+                                                        />
+                                                    </PdfScratchpad>
                                                 </div>
                                             ) : (
                                                 <p className="text-amber-500 font-bold bg-amber-500/5 p-4 rounded-xl inline-block">المحتوى قادم قريباً</p>

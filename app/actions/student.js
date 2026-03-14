@@ -575,6 +575,7 @@ export async function getExamQuestions(courseId, examId) {
                 id: q.id,
                 question: q.question,
                 image: q.image,
+                type: q.type || 'mcq',
                 options: shuffledOptions,
                 lecture: q.lecture,
                 difficulty: q.difficulty

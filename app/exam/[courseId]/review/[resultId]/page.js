@@ -248,10 +248,10 @@ export default function ExamReviewPage() {
                                 <div className="space-y-6">
                                     <div className="p-5 rounded-2xl border border-white/10 bg-[#131B2E]">
                                         <h4 className="font-black text-blue-400 mb-4 text-lg flex items-center gap-2">📷 إجابة الطالب</h4>
-                                        {studentAnswerText ? (
+                                        {studentAnswerText && typeof studentAnswerText === 'string' && studentAnswerText.startsWith('http') ? (
                                             <img src={studentAnswerText} alt="إجابة الطالب" className="max-h-80 mx-auto rounded-xl object-contain border border-white/10 bg-white/5 p-1" />
                                         ) : (
-                                            <p className="text-center text-gray-500 font-bold py-6">⚠ لم يتم رفع إجابة</p>
+                                            <div className="p-4 bg-white/5 border border-white/10 rounded-xl text-center text-gray-500 font-bold">لم يتم حفظ إجابة أو حدث خطأ أثناء الرفع ⚠️</div>
                                         )}
                                     </div>
 

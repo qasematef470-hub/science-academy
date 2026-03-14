@@ -61,10 +61,12 @@ export default function ExamPage() {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [uploadingAnswer, setUploadingAnswer] = useState({});
+    const [isUploadingEssay, setIsUploadingEssay] = useState(false);
 
     // Refs
     const isSubmittingRef = useRef(false);
     const isMountedRef = useRef(true);
+    const isFilePickerOpen = useRef(false);
     const splitScreenIntervalRef = useRef(null);
     const timerIntervalRef = useRef(null);
     const clipboardIntervalRef = useRef(null);
@@ -235,8 +237,12 @@ export default function ExamPage() {
             });
         };
 
-        const handleVisibilityChange = () => { if (document.hidden) triggerStrike("الخروج من التبويب"); };
-        const handleBlur = () => { showPanicOverlay(); triggerStrike("محاولة تصوير / فقدان التركيز"); };
+        const handleVisibilityChange = () => { if (isFilePickerOpen.current) return; if (document.hidden) triggerStrike("الخروج من التبويب"); };
+        const handleBlur = () => { if (isFilePickerOpen.current) return; showPanicOverlay(); triggerStrike("محاولة تصوير / فقدان التركيز"); };
+
+        // Reset file picker flag when browser regains focus (handles cancel)
+        const handleFocusReset = () => { isFilePickerOpen.current = false; };
+        window.addEventListener('focus', handleFocusReset);
         const handleKeyActivity = (e) => {
             if (e.key === 'PrintScreen' || e.code === 'PrintScreen' || e.keyCode === 44 || e.key === 'F12' || (e.ctrlKey && e.shiftKey && e.key === 'I')) {
                 e.preventDefault(); e.stopPropagation();
@@ -264,6 +270,7 @@ export default function ExamPage() {
             clearInterval(clipboardIntervalRef.current);
             document.removeEventListener("visibilitychange", handleVisibilityChange);
             window.removeEventListener("blur", handleBlur);
+            window.removeEventListener('focus', handleFocusReset);
             document.removeEventListener("keydown", handleKeyActivity);
             document.removeEventListener("keyup", handleKeyActivity);
             window.removeEventListener("resize", handleResize);
@@ -627,7 +634,7 @@ export default function ExamPage() {
                         <div className="max-w-3xl mx-auto bg-[#131B2E] rounded-3xl p-8 border border-white/10 text-center animate-fade-in">
                             <h2 className="text-3xl font-black text-white mb-2">مراجعة نهائية</h2>
                             <p className="text-gray-400 mb-8">أجبت على <span className="text-blue-400 font-bold">{answeredCount}</span> من <span className="text-white font-bold">{questions.length}</span> سؤال</p>
-                            <button onClick={() => handleSubmit("تسليم يدوي")} className="w-full bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold py-4 rounded-xl text-xl shadow-lg hover:scale-[1.01] transition-transform">تأكيد وإنهاء الامتحان ✅</button>
+                            <button onClick={() => handleSubmit("تسليم يدوي")} disabled={isUploadingEssay} className={`w-full bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold py-4 rounded-xl text-xl shadow-lg transition-transform ${isUploadingEssay ? 'opacity-50 cursor-not-allowed' : 'hover:scale-[1.01]'}`}>{isUploadingEssay ? '⏳ جاري رفع الصور...' : 'تأكيد وإنهاء الامتحان ✅'}</button>
                             <button onClick={() => setStep('quiz')} className="mt-4 text-gray-400 hover:text-white underline text-sm">العودة للأسئلة</button>
                         </div>
                     ) : (
@@ -677,11 +684,12 @@ export default function ExamPage() {
                                                         <p className="text-sm font-bold text-green-400 mb-3 text-center">✅ تم رفع إجابتك</p>
                                                         <img src={answersIndices[question.id]} alt="إجابة الطالب" className="max-h-60 mx-auto rounded-xl object-contain border border-white/10 bg-white/5" />
                                                     </div>
-                                                    <label className="block cursor-pointer">
+                                                    <label className="block cursor-pointer" onMouseDown={() => { isFilePickerOpen.current = true; }}>
                                                         <input type="file" className="hidden" accept="image/*" onChange={async (e) => {
                                                             const file = e.target.files[0];
-                                                            if (!file) return;
+                                                            if (!file) { isFilePickerOpen.current = false; return; }
                                                             setUploadingAnswer(prev => ({ ...prev, [question.id]: true }));
+                                                            setIsUploadingEssay(true);
                                                             try {
                                                                 const formData = new FormData();
                                                                 formData.append('image', file);
@@ -692,7 +700,7 @@ export default function ExamPage() {
                                                                     updateLocalStorage({ answersIndices: { ...answersIndices, [question.id]: data.data.url } });
                                                                 } else { alert('فشل رفع الصورة، حاول مرة أخرى.'); }
                                                             } catch (err) { console.error(err); alert('خطأ في رفع الصورة.'); }
-                                                            finally { setUploadingAnswer(prev => ({ ...prev, [question.id]: false })); }
+                                                            finally { isFilePickerOpen.current = false; setIsUploadingEssay(false); setUploadingAnswer(prev => ({ ...prev, [question.id]: false })); }
                                                         }} />
                                                         <div className="w-full py-3 text-center bg-amber-500/20 text-amber-400 rounded-xl font-bold text-sm border border-amber-500/30 hover:bg-amber-500/30 transition cursor-pointer">
                                                             🔄 تغيير الصورة
@@ -700,11 +708,12 @@ export default function ExamPage() {
                                                     </label>
                                                 </div>
                                             ) : (
-                                                <label className="block cursor-pointer">
+                                                <label className="block cursor-pointer" onMouseDown={() => { isFilePickerOpen.current = true; }}>
                                                     <input type="file" className="hidden" accept="image/*" onChange={async (e) => {
                                                         const file = e.target.files[0];
-                                                        if (!file) return;
+                                                        if (!file) { isFilePickerOpen.current = false; return; }
                                                         setUploadingAnswer(prev => ({ ...prev, [question.id]: true }));
+                                                        setIsUploadingEssay(true);
                                                         try {
                                                             const formData = new FormData();
                                                             formData.append('image', file);
@@ -715,7 +724,7 @@ export default function ExamPage() {
                                                                 updateLocalStorage({ answersIndices: { ...answersIndices, [question.id]: data.data.url } });
                                                             } else { alert('فشل رفع الصورة، حاول مرة أخرى.'); }
                                                         } catch (err) { console.error(err); alert('خطأ في رفع الصورة.'); }
-                                                        finally { setUploadingAnswer(prev => ({ ...prev, [question.id]: false })); }
+                                                        finally { isFilePickerOpen.current = false; setIsUploadingEssay(false); setUploadingAnswer(prev => ({ ...prev, [question.id]: false })); }
                                                     }} />
                                                     {uploadingAnswer[question?.id] ? (
                                                         <div className="flex flex-col items-center justify-center p-10 border-2 border-dashed border-blue-500/30 rounded-2xl bg-blue-500/5">
